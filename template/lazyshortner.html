@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Movies Adda - The King of Movie World</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- DaisyUI -->
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.23/dist/full.min.css" rel="stylesheet">
+  <!-- Animate.css -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" />
+  <!-- AOS (Animate On Scroll) -->
+  <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet" />
+  <!-- GSAP -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <!-- Canvas Confetti (for party booster effect) -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <!-- Particles.js -->
+  <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
+  
+  <style>
+    /* Global Styles */
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #0d0d0d;
+      overflow: hidden;
+      font-family: 'Orbitron', sans-serif;
+      color: #fff;
+      height: 100%;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    /* Particles.js Background (sparkle layer) */
+    #particles-js {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -5;
+      pointer-events: none;
+    }
+    /* Full-Page Water Wave Background */
+    #body-wave {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100vh;
+      z-index: -4;
+      pointer-events: none;
+      transform: perspective(800px);
+    }
+    /* Main Content Container */
+    .main-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 0.5rem 1rem;
+      position: relative;
+      z-index: 10;
+      text-align: center;
+    }
+    /* Static Neon Header - "Movies Adda" with original gradient and forced one line */
+    .movies-adda {
+      font-size: 2.8rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin: 0.2rem 0;
+      padding: 0.5rem 1rem;
+      position: relative;
+      min-height: 3.5rem;
+      background: linear-gradient(90deg, #ff1493, #ff69b4, #800080);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 2px 2px 10px rgba(0, 0, 0, 0.8);
+      white-space: nowrap;
+    }
+    @media (max-width: 600px) {
+      .movies-adda {
+        font-size: 2.2rem;
+        margin-top: -50px;  /* Decreased top space further by 10% more */
+        margin-bottom: 0.5rem;
+      }
+    }
+    /* Neon Card with Animated Water Wave Neon Gradient Background */
+    .neon-card {
+      position: relative;
+      margin: 1rem;
+      padding: 1.5rem;
+      border-radius: 20px;
+      background: rgba(255, 182, 193, 0.9);
+      max-width: 500px;
+      width: 90%;
+      box-shadow: 0 0 30px rgba(255,105,180,0.5);
+      overflow: hidden;
+    }
+    .neon-card::before {
+      content: "";
+      position: absolute;
+      top: -3px;
+      left: -3px;
+      right: -3px;
+      bottom: -3px;
+      background: linear-gradient(45deg, #ff0000, #ff69b4, #800080, #ff0000);
+      background-size: 400%;
+      z-index: -2;
+      filter: blur(10px);
+      animation: neonGlow 10s linear infinite;
+    }
+    @keyframes neonGlow {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    /* Water Ripple Overlay on Card */
+    .water-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' preserveAspectRatio='none' viewBox='0 0 120 120'%3E%3Cpath fill='%23ffffff' opacity='0.05' d='M0,60 Q30,40 60,60 T120,60' /%3E%3C/svg%3E");
+      background-size: cover;
+      opacity: 0.2;
+    }
+    /* Timer Container */
+    .timer-container {
+      position: relative;
+      width: 200px;
+      height: 200px;
+      margin: 1rem auto;
+    }
+    .timer-svg {
+      transform: rotate(-90deg);
+      width: 100%;
+      height: 100%;
+    }
+    .timer-circle-bg {
+      fill: none;
+      stroke: rgba(255,255,255,0.1);
+      stroke-width: 12;
+    }
+    .timer-circle {
+      fill: none;
+      stroke: #ff69b4;
+      stroke-width: 12;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 1s linear;
+    }
+    .timer-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 2rem;
+      text-shadow: 0 0 10px #ff1493;
+    }
+    /* Neon Button with Solid Neon Look and Animated Box-Shadow */
+    .neon-btn {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      max-width: 300px;
+      padding: 1rem;
+      margin: 1rem auto;
+      font-size: 1.2rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      text-decoration: none;
+      border: 2px solid #ff69b4;
+      border-radius: 25px;
+      background: #ff69b4;
+      color: #fff;
+      text-shadow: 0 0 5px #ff69b4, 0 0 10px #ff1493;
+      transition: all 0.3s ease;
+      animation: neonBtnAnim 3s ease-in-out infinite;
+    }
+    @keyframes neonBtnAnim {
+      0% { box-shadow: 0 0 5px #ff69b4, 0 0 10px #ff1493; }
+      50% { box-shadow: 0 0 20px #ff69b4, 0 0 30px #ff1493; }
+      100% { box-shadow: 0 0 5px #ff69b4, 0 0 10px #ff1493; }
+    }
+    .neon-btn:hover {
+      border-color: #ff1493;
+    }
+    /* Checkmark */
+    #checkmark {
+      font-size: 4rem;
+      display: none;
+      opacity: 0;
+      text-shadow: 0 0 10px #ff1493;
+      margin: 1rem 0;
+    }
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 0.5rem;
+      font-size: 1rem;
+      text-shadow: 0 0 10px #ff69b4;
+    }
+    /* Responsive Adjustments for Small Screens */
+    @media (max-width: 600px) {
+      .movies-adda {
+        font-size: 2.2rem;
+        margin-top: -30px; /* Further decrease top space */
+        margin-bottom: 0.5rem;
+      }
+      .neon-card {
+        padding: 1rem;
+      }
+      /* Reduce progress bar size by 20% further (to 140px × 140px) */
+      .timer-container {
+        width: 140px !important;
+        height: 140px !important;
+      }
+      .timer-text {
+        font-size: 1.3rem;
+      }
+      /* Reduce stroke width for progress circles on small screens */
+      .timer-circle-bg, .timer-circle {
+        stroke-width: 8 !important;
+      }
+      .neon-btn {
+        font-size: 1rem;
+        padding: 0.75rem;
+        text-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Particles.js Background -->
+  <div id="particles-js"></div>
+  
+  <!-- Full-Page Water Wave Background -->
+  <svg id="body-wave" viewBox="0 0 1440 320" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="bodyWaveGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" style="stop-color:#ff0000;stop-opacity:1" />
+        <stop offset="100%" style="stop-color:#800080;stop-opacity:1" />
+      </linearGradient>
+    </defs>
+    <path fill="url(#bodyWaveGradient)" d="M0,160L30,144C60,128,120,96,180,90.7C240,85,300,107,360,112C420,117,480,107,540,112C600,117,660,139,720,160C780,181,840,203,900,202.7C960,203,1020,181,1080,165.3C1140,149,1200,139,1260,154.7C1320,171,1380,213,1410,234.7L1440,256L1440,0L1410,0C1380,0,1320,0,1260,0C1200,0,1140,0,1080,0C1020,0,960,0,900,0C840,0,780,0,720,0C660,0,600,0,540,0C480,0,420,0,360,0C300,0,240,0,180,0C120,0,60,0,30,0L0,0Z"></path>
+  </svg>
+  
+  <!-- Main Content -->
+  <div class="main-container">
+    <!-- Title: "Movies Adda" forced on one line -->
+    <div class="movies-adda xs:-mt-[25%] sm:-mt-0 -mt-[35%]" data-aos="zoom-in">
+      Movies Adda
+    </div>
+    
+    <div class="neon-card" data-aos="fade-up">
+      <div class="water-overlay"></div>
+      <!-- Instruction Header -->
+      <h2 id="readyText" class="text-center text-2xl font-bold mb-4">
+        Your Link is Almost Ready!
+      </h2>
+      
+      <!-- SVG Circular Timer -->
+      <div class="timer-container" id="timerContainer">
+        <svg class="timer-svg" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet">
+          <circle class="timer-circle-bg" cx="100" cy="100" r="80"></circle>
+          <circle class="timer-circle" cx="100" cy="100" r="80" stroke-dasharray="502" stroke-dashoffset="502"></circle>
+        </svg>
+        <div class="timer-text" id="timerText">15 s</div>
+      </div>
+      
+      <!-- Instruction Text -->
+      <p id="countdownText" class="text-center text-xl font-semibold mb-4">
+        Preparing your file...
+      </p>
+      
+      <!-- Checkmark (initially hidden) -->
+      <div id="checkmark">✔</div>
+      
+      <!-- Neon Button (to be shown after timer completes) -->
+      <a id="redirectButton" onclick="handleSmartDownload(event)" href="" target="_blank" class="neon-btn" style="display: none;">
+        📂 Get File 📂
+      </a>
+      <p id="smartStatus" style="margin-top: 14px; font-size: 15px; color: #555; font-weight: 500;"></p>
+    </div>
+  </div>
+  
+  <script>
+    let clickedOnce = false;
+
+    function handleSmartDownload(e) {
+      e.preventDefault();
+
+      const adLink = "https://www.revenuecpmgate.com/a0qeassd?key=466d72e838a48e7925838d25a43955e6";
+      const finalLink = "thefileislazydeveloper";
+      const status = document.getElementById('smartStatus');
+
+      if (!clickedOnce) {
+        clickedOnce = true;
+        status.innerText = "Please complete the ad interaction, then return to unlock your download.";
+        window.open(adLink, "_blank");
+      } else {
+        status.innerText = "Redirecting to your download link...";
+        window.location.href = finalLink;
+      }
+    }
+  </script>
+
+  <!-- Footer -->
+  <footer data-aos="fade-up">
+    Click on the below button to get file<br>
+    🧩 With Love <a href="https://telegram.me/lazydeveloperr" target="_blank" class="underline font-bold">LazyDeveloper</a> ❤
+  </footer>
+  
+  <!-- AOS Script -->
+  <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+  <script>
+    AOS.init({ duration: 1200 });
+  </script>
+  
+  <!-- GSAP Timer Animation and Checkmark Transition -->
+  <script>
+    let countdown = 15;
+    const totalTime = 15;
+    const timerTextEl = document.getElementById("timerText");
+    const timerCircle = document.querySelector(".timer-circle");
+    const totalDashArray = 502; // Circumference for r=80 circle
+    
+    const updateTimer = () => {
+      if (countdown >= 0) {
+        timerTextEl.textContent = countdown + " s";
+        let progress = countdown / totalTime;
+        let dashOffset = totalDashArray * progress;
+        gsap.to(timerCircle, { duration: 1, strokeDashoffset: dashOffset, ease: "linear" });
+        countdown--;
+      } else {
+        clearInterval(timerInterval);
+        timerTextEl.textContent = "0 s";
+        // Fade out the ready text
+        gsap.to("#readyText", { duration: 0.5, opacity: 0, onComplete: () => {
+          document.getElementById("readyText").style.display = "none";
+        }});
+        // Fade out the timer container, then show the checkmark
+        gsap.to("#timerContainer", { duration: 0.5, opacity: 0, onComplete: () => {
+          document.getElementById("timerContainer").style.display = "none";
+          document.getElementById("checkmark").style.display = "block";
+          gsap.fromTo("#checkmark", { scale: 0 }, { duration: 0.8, opacity: 1, scale: 1.2, ease: "back.out(1.7)", onComplete: () => {
+            // Update instruction text and show the button
+            gsap.to("#countdownText", { duration: 0.5, opacity: 0, onComplete: () => {
+              document.getElementById("countdownText").textContent = "Click on the below button to get file";
+              gsap.to("#countdownText", { duration: 0.5, opacity: 1 });
+            }});
+            gsap.to("#redirectButton", { duration: 0.5, opacity: 1, display: "flex" });
+            // Trigger party booster effect (confetti)
+            confetti({
+              particleCount: 100,
+              spread: 70,
+              origin: { y: 0.6 }
+            });
+          }});
+        }});
+      }
+    };
+    
+    let timerInterval = setInterval(updateTimer, 1000);
+    
+    function redirectToBot() {
+      window.location.href = "thefileislazydeveloper";
+    }
+  </script>
+  
+  <!-- Particles.js Initialization -->
+  <script>
+    particlesJS("particles-js", {
+      "particles": {
+        "number": { "value": 80, "density": { "enable": true, "value_area": 800 } },
+        "color": { "value": "#ff69b4" },
+        "shape": { "type": "circle", "stroke": { "width": 0, "color": "#000" } },
+        "opacity": { "value": 0.5, "random": false },
+        "size": { "value": 3, "random": true },
+        "line_linked": { "enable": true, "distance": 150, "color": "#ff1493", "opacity": 0.4, "width": 1 },
+        "move": { "enable": true, "speed": 2, "direction": "none", "random": false, "straight": false, "out_mode": "out" }
+      },
+      "interactivity": {
+        "detect_on": "canvas",
+        "events": {
+          "onhover": { "enable": true, "mode": "repulse" },
+          "onclick": { "enable": true, "mode": "push" }
+        },
+        "modes": {
+          "repulse": { "distance": 100, "duration": 0.4 },
+          "push": { "particles_nb": 4 }
+        }
+      },
+      "retina_detect": true
+    });
+  </script>
+  
+  <!-- GSAP 3D Water Wave Effect for Full-Page Background -->
+  <script>
+    gsap.to("#body-wave", { 
+      duration: 10, 
+      x: 50, 
+      rotationX: 20, 
+      rotationY: 20, 
+      transformOrigin: "50% 50%", 
+      repeat: -1, 
+      yoyo: true, 
+      ease: "sine.inOut" 
+    });
+    
+    // Shake detection for extra water movement
+    let lastShakeTime = 0;
+    const shakeThreshold = 15;
+    if (window.DeviceMotionEvent) {
+      window.addEventListener('devicemotion', function(event) {
+        const acc = event.accelerationIncludingGravity;
+        if (acc && (Math.abs(acc.x) > shakeThreshold || Math.abs(acc.y) > shakeThreshold || Math.abs(acc.z) > shakeThreshold)) {
+          const now = Date.now();
+          if (now - lastShakeTime > 1000) {
+            lastShakeTime = now;
+            gsap.fromTo("#body-wave", { x: -20 }, { duration: 0.5, x: 20, yoyo: true, repeat: 3, ease: "sine.inOut" });
+          }
+        }
+      });
+    }
+  </script>
+  
+  <!-- GSAP Water Ripple Effect for Card -->
+  <script>
+    const neonCard = document.querySelector('.neon-card');
+    neonCard.addEventListener('mouseenter', () => {
+      gsap.to('.water-overlay', { duration: 0.5, opacity: 0.3, ease: "power1.inOut" });
+    });
+    neonCard.addEventListener('mouseleave', () => {
+      gsap.to('.water-overlay', { duration: 0.5, opacity: 0.2, ease: "power1.inOut" });
+    });
+    gsap.to('.water-overlay', { duration: 4, x: 20, repeat: -1, yoyo: true, ease: "sine.inOut" });
+  </script>
+
+  <script>
+        document.addEventListener("contextmenu", function (e) {
+        e.preventDefault();
+    });
+    document.addEventListener('keydown', function (e) {
+        if (
+            e.key === 'F12' ||
+            (e.ctrlKey && e.shiftKey && e.key === 'I') ||
+            (e.ctrlKey && e.key === 'u') ||
+            e.ctrlKey ||
+            e.shiftKey ||
+            e.altKey
+        ) {
+            e.preventDefault();
+        }
+    });
+  </script>
+  
+
+</body>
+</html>
+

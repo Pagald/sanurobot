@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Movies Adda - Advanced Neon Experience</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- DaisyUI -->
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.23/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <!-- Animate.css -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+  <!-- AOS for Scroll Animations -->
+  <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+  <style>
+    /* ===========================
+       Global & Background Styles
+    ============================ */
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      background: radial-gradient(circle at center, #0a0a0a, #000);
+      position: relative;
+      font-family: 'Arial', sans-serif;
+    }
+    /* Simple neon particle effect (for extra visual flair) */
+    .particle {
+      position: absolute;
+      background: rgba(255,255,255,0.1);
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(0,255,255,0.5);
+      animation: drift 10s linear infinite;
+    }
+    @keyframes drift {
+      0% { transform: translate(0,0); }
+      50% { transform: translate(50px, -50px); }
+      100% { transform: translate(0,0); }
+    }
+
+    /* ===============================
+       Advanced Neon Hero Card
+    ================================ */
+    .neon-card {
+      position: relative;
+      padding: 2rem;
+      border-radius: 20px;
+      background: rgba(0,0,0,0.9);
+      overflow: hidden;
+      box-shadow: 0 0 20px rgba(0,255,255,0.3);
+    }
+    .neon-card::before {
+      content: "";
+      position: absolute;
+      top: -2px;
+      left: -2px;
+      right: -2px;
+      bottom: -2px;
+      background: linear-gradient(45deg, #ff0040, #00ff99, #ff00e6, #00bfff, #ff0040);
+      background-size: 400%;
+      z-index: -2;
+      filter: blur(8px);
+      animation: borderShift 8s linear infinite;
+    }
+    .neon-card::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      right: 2px;
+      bottom: 2px;
+      background: transparent;
+      border-radius: 18px;
+      z-index: -1;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    @keyframes borderShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    /* ==================================
+       3D Neon Header: Movies Adda
+    =================================== */
+    .movies-adda {
+      font-size: 4rem;
+      font-weight: bold;
+      text-align: center;
+      color: #fff;
+      position: relative;
+      margin-bottom: 2rem;
+      text-shadow: 0 0 10px #0ff, 0 0 20px #0ff;
+      perspective: 1000px;
+    }
+    .movies-adda span {
+      display: inline-block;
+      transform: rotateX(10deg) rotateY(15deg);
+      animation: flicker 3s infinite alternate;
+    }
+    @keyframes flicker {
+      0% { filter: brightness(1); }
+      50% { filter: brightness(1.2); }
+      100% { filter: brightness(0.8); }
+    }
+
+    /* =======================================
+       Advanced Circular Timer Using SVG
+    ======================================== */
+    .timer-container {
+      position: relative;
+      width: 150px;
+      height: 150px;
+      margin: 0 auto 1rem;
+    }
+    .timer-svg {
+      transform: rotate(-90deg);
+    }
+    .timer-circle-bg {
+      fill: none;
+      stroke: rgba(255,255,255,0.1);
+      stroke-width: 10;
+    }
+    .timer-circle {
+      fill: none;
+      stroke: #0ff;
+      stroke-width: 10;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 1s linear;
+    }
+    .timer-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.5rem;
+      color: #fff;
+    }
+
+    /* ==============================
+       Advanced Neon Button Effects
+    =============================== */
+    .neon-btn {
+      position: relative;
+      display: inline-block;
+      padding: 0.8rem 2rem;
+      color: #fff;
+      font-weight: bold;
+      text-transform: uppercase;
+      text-decoration: none;
+      border: 2px solid #0ff;
+      border-radius: 15px;
+      background: transparent;
+      overflow: hidden;
+      transition: color 0.3s;
+    }
+    .neon-btn:hover {
+      color: #0ff;
+    }
+    .neon-btn::before, .neon-btn::after {
+      content: "";
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: linear-gradient(45deg, transparent, rgba(0,255,255,0.5), transparent);
+      transform: rotate(45deg);
+      opacity: 0;
+      transition: opacity 0.5s;
+    }
+    .neon-btn:hover::before, .neon-btn:hover::after {
+      opacity: 1;
+      animation: lightning 0.5s ease-out;
+    }
+    @keyframes lightning {
+      0% { transform: translate(0,0) scale(0.5) rotate(45deg); opacity: 1; }
+      100% { transform: translate(50px,50px) scale(1.5) rotate(45deg); opacity: 0; }
+    }
+  </style>
+</head>
+<body class="bg-black text-white relative">
+  <!-- Neon Particles for Extra Ambient Vibes -->
+  <div class="particle" style="width: 8px; height: 8px; top: 10%; left: 20%;"></div>
+  <div class="particle" style="width: 5px; height: 5px; top: 40%; left: 70%;"></div>
+  <div class="particle" style="width: 7px; height: 7px; top: 80%; left: 30%;"></div>
+  <div class="particle" style="width: 6px; height: 6px; top: 25%; left: 50%;"></div>
+  <div class="particle" style="width: 9px; height: 9px; top: 60%; left: 80%;"></div>
+  <!-- End Neon Particles -->
+
+  <div class="container mx-auto px-4 py-8" data-aos="fade-up">
+    <!-- 3D Neon Header -->
+    <div class="movies-adda" data-aos="zoom-in">
+      <span>Movies Adda</span>
+    </div>
+    <!-- Hero Card -->
+    <div class="neon-card mx-auto max-w-lg" data-aos="fade-up">
+      <h1 class="text-center text-2xl font-bold mb-4">Your Link is Almost Ready!</h1>
+      <!-- Circular Timer with SVG -->
+      <div class="timer-container">
+        <svg class="timer-svg" width="150" height="150">
+          <circle class="timer-circle-bg" cx="75" cy="75" r="65"></circle>
+          <circle class="timer-circle" cx="75" cy="75" r="65" stroke-dasharray="408" stroke-dashoffset="408"></circle>
+        </svg>
+        <div class="timer-text" id="timerText">15 s</div>
+      </div>
+      <p class="text-center text-xl font-semibold mb-4" id="countdownText">
+        Preparing your file...
+      </p>
+      <!-- Advanced Neon Button -->
+      <a id="redirectButton" href="thefileislazydeveloper" target="_blank" class="neon-btn mx-auto block" style="display: none;" onclick="redirectToBot()">
+        📂 Get File 📂
+      </a>
+    </div>
+  </div>
+  <!-- Footer -->
+  <footer class="w-full p-4 flex flex-col items-center bg-black mt-8" data-aos="fade-up">
+    <p class="font-semibold">
+      🧩 With Love <a href="https://telegram.me/lazydeveloperr" class="font-bold underline" target="_blank">LazyDeveloper</a> ❤
+    </p>
+  </footer>
+
+  <!-- AOS Script -->
+  <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+  <script>
+    AOS.init({ duration: 1000 });
+    // Advanced Circular Timer Logic using SVG
+    let countdown = 15;
+    const totalTime = 15;
+    const timerText = document.getElementById("timerText");
+    const timerCircle = document.querySelector(".timer-circle");
+    const totalDashArray = 408; // Circumference for a circle with r=65
+    let timerInterval = setInterval(updateTimer, 1000);
+
+    function updateTimer() {
+      if (countdown >= 0) {
+        timerText.textContent = countdown + " s";
+        let progress = countdown / totalTime;
+        let dashOffset = totalDashArray * progress;
+        timerCircle.style.strokeDashoffset = dashOffset;
+        countdown--;
+      } else {
+        clearInterval(timerInterval);
+        timerText.textContent = "0 s";
+        document.getElementById("redirectButton").style.display = "block";
+        document.getElementById("countdownText").textContent = "Click the button below to get file 👇";
+      }
+    }
+
+    function redirectToBot() {
+      window.location.href = "thefileislazydeveloper";
+    }
+  </script>
+</body>
+</html>
