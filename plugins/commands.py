@@ -908,34 +908,68 @@ async def remove_force_channel(client, message):
 # auth channel settings 
 @Client.on_message(filters.private & filters.command("add_auth") & filters.user(ADMINS))
 async def setup_auth_channel(client, message):
-    if len(message.command) < 2:
-        await message.reply("⚠️ Usage: /add_auth <channel_id>")
+    if len(message.command) < 2 and not message.reply_to_message:
+        await message.reply(
+            "⚠️ **Usage:**\n"
+            "• `/add_auth <channel_id | @username | link>`\n"
+            "• Or reply to a forwarded message from the channel with `/add_auth`"
+        )
         return
 
-    channel_id = message.command[1]
+    msg_text = message.text.split(maxsplit=1)[1] if len(message.command) >= 2 else None
 
-    # Try to insert the new channel
+    if message.reply_to_message and message.reply_to_message.forward_from_chat:
+        target_channel = message.reply_to_message.forward_from_chat.id
+    elif msg_text:
+        target_channel = msg_text.strip()
+        if "t.me/" in target_channel:
+            target_channel = target_channel.split("t.me/")[-1].replace("+", "").replace("/", "")
+            if not target_channel.startswith("@") and not target_channel.startswith("-100") and not target_channel.replace("-", "").isdigit():
+                target_channel = f"@{target_channel}"
+    else:
+        await message.reply("⚠️ Invalid input provided.")
+        return
+
+    try:
+        chat = await client.get_chat(target_channel)
+        channel_id = chat.id
+        title = chat.title or chat.username or str(channel_id)
+    except Exception as e:
+        try:
+            channel_id = int(target_channel)
+            title = str(channel_id)
+        except Exception:
+            return await message.reply(f"❌ **Failed to resolve channel:** `{e}`\n\nMake sure the bot is an admin in that channel!")
+
     inserted_channel_id = await db.add_new_auth_channel(channel_id)
 
     if inserted_channel_id:
-        await message.reply(f"✅ Channel ID: {channel_id} has been successfully added in AUTH_CHANNEL list.")
+        await message.reply(f"✅ **Channel added successfully to ForceSub!**\n\n📌 **Title:** `{title}`\n🆔 **ID:** `<code>{channel_id}</code>`")
     else:
-        await message.reply(f"⚠️ Channel ID: {channel_id} is already in the AUTH_CHANNEL list.")
+        await message.reply(f"⚠️ Channel `{title}` (`<code>{channel_id}</code>`) is already in the AUTH_CHANNEL list.")
 
 @Client.on_message(filters.private & filters.command("remove_auth") & filters.user(ADMINS))
 async def remove_auth_channel(client, message):
     if len(message.command) < 2:
-        await message.reply("⚠️ Usage: /remove_auth <channel_id>")
+        await message.reply("⚠️ **Usage:** `/remove_auth <channel_id or @username>`")
         return
 
-    channel_id = message.command[1]
+    input_channel = message.command[1].strip()
+    try:
+        chat = await client.get_chat(input_channel)
+        channel_id = chat.id
+    except Exception:
+        try:
+            channel_id = int(input_channel)
+        except Exception:
+            channel_id = input_channel
 
     removed = await db.remove_auth_channel(channel_id)
 
     if removed:
-        await message.reply(f"✅ Channel ID: {channel_id} has been removed successfully from AUTH_CHANNEL list.")
+        await message.reply(f"✅ Channel `<code>{channel_id}</code>` has been removed successfully from AUTH_CHANNEL list.")
     else:
-        await message.reply(f"❌ Channel ID: {channel_id} was not found in the AUTH_CHANNEL list.")
+        await message.reply(f"❌ Channel `<code>{channel_id}</code>` was not found in the AUTH_CHANNEL list.")
 
 
 async def generate_channel_keyboard(client, page=1):

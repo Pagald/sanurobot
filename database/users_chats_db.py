@@ -73,12 +73,29 @@ class Database:
             return self._auth_channels_cache
         channels_cursor = self.authchannels.find().sort('_id', -1)  # Fetch channels
         channels = await channels_cursor.to_list(length=None)  # Convert to list
-        self._auth_channels_cache = [int(channel['channel_id']) for channel in channels]  # Ensure all IDs are integers
+        clean_channels = []
+        for channel in channels:
+            try:
+                clean_channels.append(int(channel['channel_id']))
+            except (ValueError, TypeError, KeyError):
+                pass
+        self._auth_channels_cache = clean_channels
         return self._auth_channels_cache
     
     async def add_new_auth_channel(self, channel_id):
-        # Check if the channel_id already exists
-        existing_channel = await self.authchannels.find_one({"channel_id": channel_id})
+        try:
+            channel_id = int(channel_id)
+        except (ValueError, TypeError):
+            pass
+
+        # Check if the channel_id already exists as int or str
+        existing_channel = await self.authchannels.find_one({
+            "$or": [
+                {"channel_id": channel_id},
+                {"channel_id": str(channel_id)},
+                {"channel_id": int(channel_id) if str(channel_id).replace("-", "").isdigit() else channel_id}
+            ]
+        })
         
         if existing_channel:
             return None  # Channel already exists, so don't insert
@@ -89,7 +106,20 @@ class Database:
         return result.inserted_id  # Return the inserted channel's ID
 
     async def remove_auth_channel(self, channel_id):
-        result = await self.authchannels.delete_one({"channel_id": channel_id})
+        try:
+            int_id = int(channel_id)
+            str_id = str(channel_id)
+        except (ValueError, TypeError):
+            int_id = channel_id
+            str_id = str(channel_id)
+
+        result = await self.authchannels.delete_one({
+            "$or": [
+                {"channel_id": channel_id},
+                {"channel_id": int_id},
+                {"channel_id": str_id}
+            ]
+        })
         self._auth_channels_cache = None # Invalidate cache
         return result.deleted_count > 0  # Returns True if a channel was removed
 

@@ -21,7 +21,8 @@ def is_enabled(value, default):
 SESSION = environ.get('SESSION', 'Media_search')
 API_ID = environ.get("API_ID", "17319714")
 API_HASH = environ.get("API_HASH", "4214385b4b215e55e69ae2746d3421b7")
-BOT_TOKEN = environ.get("BOT_TOKEN", "8621562044:AAH-AmU-Lu2EYE1T9GL0bQ8FR2THt1_Rnjg") 
+# BOT_TOKEN = environ.get("BOT_TOKEN", "8621562044:AAH-AmU-Lu2EYE1T9GL0bQ8FR2THt1_Rnjg") 
+BOT_TOKEN = environ.get("BOT_TOKEN", "8033881497:AAGcqyMP8ck9pw36OSyJS3_x7locnauZWY0") 
 
 # Bot settings
 CACHE_TIME = int(environ.get('CACHE_TIME', 300))
@@ -52,9 +53,16 @@ LAZY_DIVERTING_CHANNEL = int(environ.get('LAZY_DIVERTING_CHANNEL', '-10038541933
 
 
 # MongoDB information *
-DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://sanubot:sanubot@telegrambots.qjo13uy.mongodb.net/?appName=telegrambots")
-DATABASE_NAME = environ.get('DATABASE_NAME', "telegrambots")
-COLLECTION_NAME = environ.get('COLLECTION_NAME', 'LazyDeveloperr')
+DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://lazydeveloperr:lazydeveloperr@lazydeveloperr.r5xrpcd.mongodb.net/?appName=lazydeveloperr")
+# DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://sanubot:sanubot@telegrambots.qjo13uy.mongodb.net/?appName=telegrambots")
+DATABASE_NAME = environ.get('DATABASE_NAME', "lazydeveloperr")
+COLLECTION_NAME = environ.get('COLLECTION_NAME', 'Lazy_filex')
+
+
+# MongoDB information *
+# DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://sanubot:sanubot@telegrambots.qjo13uy.mongodb.net/?appName=telegrambots")
+# DATABASE_NAME = environ.get('DATABASE_NAME', "telegrambots")
+# COLLECTION_NAME = environ.get('COLLECTION_NAME', 'LazyDeveloperr')
 
 # LOG CHANNELS *
 LOG_CHANNEL = int(environ.get('LOG_CHANNEL', '-1002196135580'))
