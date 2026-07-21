@@ -2941,14 +2941,21 @@ async def auto_filter(client, msg, spoll=False):
                         return await auto_filter(client, msg)
                     await ai_sts.delete()
                     await advantage_spell_chok(msg)
-                    return                                                                                                       
-                
+                    return
+                else:
+                    await advantage_spell_chok(msg)
+                    return
         else: 
             return
     else:
         settings = await get_settings(msg.message.chat.id)
         message = msg.message.reply_to_message  # msg will be callback query
         search, files, offset, total_results = spoll
+        if not files:
+            k = await msg.message.edit_text(script.I_CUDNT.format(search))
+            await asyncio.sleep(60)
+            await k.delete()
+            return
     pre = 'filep' if settings['file_secure'] else 'file'
     key = f"{message.chat.id}-{message.id}"
     FRESH[key] = search

@@ -1338,3 +1338,39 @@ async def removetutorial(bot, message):
     reply = await message.reply_text("<b>ᴘʟᴇᴀꜱᴇ ᴡᴀɪᴛ...</b>")
     await save_group_settings(grpid, 'is_tutorial', False)
     await reply.edit_text(f"<b>Tutorial link removed ✔</b>")
+
+@Client.on_message(filters.command(["toggle_spell_check", "toggle_spellcheck", "spellcheck"]) & (filters.group | filters.private))
+async def toggle_spell_check_cmd(client, message):
+    userid = message.from_user.id if message.from_user else None
+    if not userid:
+        return await message.reply("You are an anonymous admin. Use /connect <chat_id> in PM")
+    chat_type = message.chat.type
+
+    if chat_type == enums.ChatType.PRIVATE:
+        grpid = await active_connection(str(userid))
+        if grpid is not None:
+            grp_id = int(grpid)
+            try:
+                chat = await client.get_chat(grp_id)
+                title = chat.title
+            except Exception:
+                return await message.reply_text("Make sure I'm present in your group!!", quote=True)
+        else:
+            return await message.reply_text("I'm not connected to any group! Use /connect in PM or use this command inside your group.", quote=True)
+    elif chat_type in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
+        grp_id = message.chat.id
+        title = message.chat.title
+        st = await client.get_chat_member(grp_id, userid)
+        if st.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER] and userid not in ADMINS:
+            return await message.reply_text("<b>❌ Only Group Admins can change settings!</b>")
+    else:
+        return
+
+    settings = await get_settings(grp_id)
+    current_status = settings.get("spell_check", True)
+    new_status = not current_status
+
+    await save_group_settings(grp_id, "spell_check", new_status)
+    status_str = "<b>ENABLED 🟢</b>" if new_status else "<b>DISABLED 🔴</b>"
+    await message.reply_text(f"<b>✨ Spell Check is now {status_str} for {title}!</b>")
+
