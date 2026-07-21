@@ -246,5 +246,3 @@ LOG_STR += ("𓆩ཫ⚙ཀ𓆪 Long IMDB storyline enabled." if LONG_IMDB_DESCRI
 LOG_STR += ("𓆩ཫ⚙ཀ𓆪 A.I Spell Check Mode Is Enabled, bot will be suggesting related movies if movie not found\n" if SPELL_CHECK_REPLY else "SPELL_CHECK_REPLY Mode disabled\n")
 LOG_STR += (f"𓆩ཫ⚙ཀ𓆪 MAX_LIST_ELM Found, long list will be shortened to first {MAX_LIST_ELM} elements\n" if MAX_LIST_ELM else "Full List of casts and crew will be shown in imdb template, restrict them by adding a value to MAX_LIST_ELM\n")
 LOG_STR += f"𓆩ཫ⚙ཀ𓆪 Your current IMDB template is\n:  {IMDB_TEMPLATE}"
-
-

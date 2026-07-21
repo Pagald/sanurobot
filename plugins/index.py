@@ -1,7 +1,7 @@
 import logging
 import asyncio
 from pyrogram import Client, filters, enums
-from pyrogram.errors import FloodWait
+from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.errors.exceptions.bad_request_400 import ChannelInvalid, ChatAdminRequired, UsernameInvalid, UsernameNotModified
 from info import ADMINS, LAZY_RENAMERS
 from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
@@ -19,44 +19,146 @@ logger.setLevel(logging.INFO)
 lock = asyncio.Lock()
 semaphore = asyncio.Semaphore(1) # create a semaphore with initial value of 1
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper: safe edit for Small DB — waits out FloodWait and retries
+# ─────────────────────────────────────────────────────────────────────────────
+async def safe_edit(msg, text, reply_markup=None):
+    """Edit a message and silently wait out any FloodWait before retrying (Small DB mode)."""
+    while True:
+        try:
+            if reply_markup:
+                await msg.edit_text(text=text, reply_markup=reply_markup)
+            else:
+                await msg.edit(text)
+            break
+        except FloodWait as fw:
+            logger.warning(f"FloodWait: sleeping {fw.value}s before retrying edit...")
+            await asyncio.sleep(fw.value + 2)
+        except Exception:
+            break  # non-flood errors — just skip this update
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper: safe edit for Large DB — SKIPS the edit on FloodWait (non-blocking)
+# This is the key difference: we never block the indexing loop waiting for Telegram.
+# ─────────────────────────────────────────────────────────────────────────────
+async def safe_edit_nonblocking(msg, text, reply_markup=None):
+    """Try to edit a message. If FloodWait hits, log and skip — never block (Large DB mode)."""
+    try:
+        if reply_markup:
+            await msg.edit_text(text=text, reply_markup=reply_markup)
+        else:
+            await msg.edit(text)
+    except FloodWait as fw:
+        logger.warning(f"[LargeDB] FloodWait {fw.value}s — skipping this progress edit to keep indexing running.")
+    except MessageNotModified:
+        pass  # text didn't change, harmless
+    except Exception as e:
+        logger.warning(f"[LargeDB] Edit skipped: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 1: When admin clicks "Start Indexing" → ask DB size first
+# ─────────────────────────────────────────────────────────────────────────────
 @Client.on_callback_query(filters.regex(r'^index'))
 async def index_files(bot, query):
+    # ── Cancel button ──────────────────────────────────────────────────────
     if query.data.startswith('index_cancel'):
         temp.CANCEL = True
         return await query.answer("Cancelling Indexing")
+
+    # ── DB-size choice already made → proceed to indexing ─────────────────
+    if query.data.startswith('index_dbsize#'):
+        # format: index_dbsize#<size>#<lazydeveloperr>#<chat>#<lst_msg_id>#<from_user>
+        parts = query.data.split("#")
+        # parts[0] = 'index_dbsize'
+        db_size   = parts[1]            # 'large' or 'small'
+        lazydeveloperr = parts[2]
+        chat      = parts[3]
+        lst_msg_id = parts[4]
+        from_user  = parts[5]
+
+        if lock.locked():
+            return await query.answer('Wait until previous process complete.', show_alert=True)
+
+        msg = query.message
+        await query.answer('Processing...⏳', show_alert=True)
+
+        if int(from_user) not in ADMINS:
+            await bot.send_message(
+                int(from_user),
+                f'Your Submission for indexing {chat} has been accepted by our moderators and will be added soon.',
+                reply_to_message_id=int(lst_msg_id)
+            )
+
+        mode_label = "🗂 Large Database Mode" if db_size == "large" else "📁 Small Database Mode"
+        await safe_edit(
+            msg,
+            f"Starting Indexing\n<b>{mode_label}</b>",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton('Cancel', callback_data='index_cancel')]]
+            )
+        )
+
+        try:
+            chat_id = int(chat)
+        except:
+            chat_id = chat
+
+        is_large = (db_size == "large")
+        await index_files_to_db(int(lst_msg_id), chat_id, msg, bot, large_db=is_large)
+        return
+
+    # ── Reject button ──────────────────────────────────────────────────────
     _, lazydeveloperr, chat, lst_msg_id, from_user = query.data.split("#")
     if lazydeveloperr == 'reject':
         await query.message.delete()
-        await bot.send_message(int(from_user),
-                               f'Your Submission for indexing {chat} has been decliened by our moderators.',
-                               reply_to_message_id=int(lst_msg_id))
+        await bot.send_message(
+            int(from_user),
+            f'Your Submission for indexing {chat} has been decliened by our moderators.',
+            reply_to_message_id=int(lst_msg_id)
+        )
         return
 
+    # ── Accept button → ask Large or Small before starting ────────────────
     if lock.locked():
         return await query.answer('Wait until previous process complete.', show_alert=True)
+
     msg = query.message
+    await query.answer('Choose database size...', show_alert=False)
 
-    await query.answer('Processing...⏳', show_alert=True)
-    if int(from_user) not in ADMINS:
-        await bot.send_message(int(from_user),
-                               f'Your Submission for indexing {chat} has been accepted by our moderators and will be added soon.',
-                               reply_to_message_id=int(lst_msg_id))
-    await msg.edit(
-        "Starting Indexing",
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton('Cancel', callback_data='index_cancel')]]
-        )
+    size_buttons = [
+        [
+            InlineKeyboardButton(
+                '🗂 Large Database',
+                callback_data=f'index_dbsize#large#{lazydeveloperr}#{chat}#{lst_msg_id}#{from_user}'
+            ),
+            InlineKeyboardButton(
+                '📁 Small Database',
+                callback_data=f'index_dbsize#small#{lazydeveloperr}#{chat}#{lst_msg_id}#{from_user}'
+            ),
+        ],
+        [InlineKeyboardButton('⨳  C L Ф S Ξ  ⨳', callback_data='close_data')]
+    ]
+    await safe_edit(
+        msg,
+        "⚙️ <b>Select Database Type</b>\n\n"
+        "📁 <b>Small Database</b> — updates progress every <b>60 messages</b>.\n"
+        "Suitable for channels with <b>fewer files</b>.\n\n"
+        "🗂 <b>Large Database</b> — updates progress every <b>500 files saved</b>.\n"
+        "Never blocks on FloodWait — indexing runs smoothly at full speed.\n"
+        "Recommended for large channels with <b>50,000+ files</b> (up to 5 lakh+).",
+        reply_markup=InlineKeyboardMarkup(size_buttons)
     )
-    try:
-        chat = int(chat)
-    except:
-        chat = chat
-    await index_files_to_db(int(lst_msg_id), chat, msg, bot)
 
-@Client.on_message((filters.forwarded | (filters.regex("(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")) & filters.text ) & filters.private & filters.incoming)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Index-link / forwarded-message handler (unchanged logic, kept intact)
+# ─────────────────────────────────────────────────────────────────────────────
+@Client.on_message((filters.forwarded | (filters.regex("(https://)?(t\\.me/|telegram\\.me/|telegram\\.dog/)(c/)?(\\d+|[a-zA-Z_0-9]+)/(\\d+)$")) & filters.text ) & filters.private & filters.incoming)
 async def send_for_index(bot, message):
     if message.text:
-        regex = re.compile("(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+        regex = re.compile("(https://)?(t\\.me/|telegram\\.me/|telegram\\.dog/)(c/)?(\\d+|[a-zA-Z_0-9]+)/(\\d+)$")
         match = regex.match(message.text)
         if not match:
             return await message.reply('Invalid link')
@@ -185,28 +287,114 @@ async def set_skip_number(bot, message):
         await message.reply("Give me a skip number")
 
 
-async def index_files_to_db(lst_msg_id, chat, msg, bot):
+# ─────────────────────────────────────────────────────────────────────────────
+# Core indexing function
+#
+#   large_db=False → SMALL DB MODE
+#       • Updates progress every 20 messages (frequent, safe for small channels)
+#       • Waits out FloodWait before retrying (safe_edit — blocking)
+#
+#   large_db=True  → LARGE DB MODE  (the key difference)
+#       • Progress is updated every LARGE_DB_NOTIFY_EVERY files SAVED.
+#         Triggered by actual saved-file count — so the user is notified
+#         after every 500 files land in the database.
+#       • On FloodWait: the edit is SKIPPED entirely (safe_edit_nonblocking).
+#         The indexing loop NEVER pauses — it just skips that one UI update and
+#         keeps running at full speed. This prevents the "message edit flood" error
+#         from accumulating when indexing 3 lakh+ files.
+#       • asyncio.sleep(0) is yielded every LARGE_DB_YIELD_EVERY messages so the
+#         event loop stays responsive (cancel callbacks still work).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Notify user after every N files SAVED in Large DB mode
+LARGE_DB_NOTIFY_EVERY = 500
+# How often to yield control to the event loop in Large DB mode (every N messages)
+LARGE_DB_YIELD_EVERY = 500
+
+
+async def index_files_to_db(lst_msg_id, chat, msg, bot, large_db=False):
     total_files = 0
     duplicate = 0
     errors = 0
     deleted = 0
     no_media = 0
     unsupported = 0
+
+    # Small DB: update every 60 messages
+    SMALL_DB_UPDATE_INTERVAL = 60
+
+    # Counter used for the yield-every-N trick in large DB mode
+    msg_counter = 0
+    last_notified_files = 0
+
     async with lock:
         try:
             current = temp.CURRENT
             temp.CANCEL = False
+
             async for message in bot.iter_messages(chat, lst_msg_id, temp.CURRENT):
                 if temp.CANCEL:
-                    await msg.edit(f"Successfully Cancelled!!\n\nSaved <code>{total_files}</code> files to dataBase!\nDuplicate Files Skipped: <code>{duplicate}</code>\nDeleted Messages Skipped: <code>{deleted}</code>\nNon-Media messages skipped: <code>{no_media + unsupported}</code>(Unsupported Media - `{unsupported}` )\nErrors Occurred: <code>{errors}</code>")
+                    cancel_text = (
+                        f"Successfully Cancelled!!\n\n"
+                        f"Saved <code>{total_files}</code> files to dataBase!\n"
+                        f"Duplicate Files Skipped: <code>{duplicate}</code>\n"
+                        f"Deleted Messages Skipped: <code>{deleted}</code>\n"
+                        f"Non-Media messages skipped: <code>{no_media + unsupported}</code>"
+                        f"(Unsupported Media - `{unsupported}` )\n"
+                        f"Errors Occurred: <code>{errors}</code>"
+                    )
+                    if large_db:
+                        await safe_edit_nonblocking(msg, cancel_text)
+                    else:
+                        await safe_edit(msg, cancel_text)
                     break
+
                 current += 1
-                if current % 20 == 0:
-                    can = [[InlineKeyboardButton('Cancel', callback_data='index_cancel')]]
-                    reply = InlineKeyboardMarkup(can)
-                    await msg.edit_text(
-                        text=f"Total messages fetched: <code>{current}</code>\nTotal messages saved: <code>{total_files}</code>\nDuplicate Files Skipped: <code>{duplicate}</code>\nDeleted Messages Skipped: <code>{deleted}</code>\nNon-Media messages skipped: <code>{no_media + unsupported}</code>(Unsupported Media - `{unsupported}` )\nErrors Occurred: <code>{errors}</code>",
-                        reply_markup=reply)
+                msg_counter += 1
+
+                # ── Progress update logic ──────────────────────────────────
+                if large_db:
+                    # LARGE DB: file-count-gated, non-blocking
+                    # Yield to event loop every LARGE_DB_YIELD_EVERY messages so
+                    # cancel callbacks can still be received.
+                    if msg_counter % LARGE_DB_YIELD_EVERY == 0:
+                        await asyncio.sleep(0)
+
+                    # Notify after every LARGE_DB_NOTIFY_EVERY files saved (only once per threshold)
+                    if total_files > 0 and total_files % LARGE_DB_NOTIFY_EVERY == 0 and total_files != last_notified_files:
+                        last_notified_files = total_files
+                        can = [[InlineKeyboardButton('Cancel', callback_data='index_cancel')]]
+                        reply = InlineKeyboardMarkup(can)
+                        progress_text = (
+                            f"🗂 <b>Large DB Mode</b> — indexing in progress...\n\n"
+                            f"📨 Messages scanned: <code>{current}</code>\n"
+                            f"✅ Files saved: <code>{total_files}</code>\n"
+                            f"♻️ Duplicates skipped: <code>{duplicate}</code>\n"
+                            f"🗑 Deleted msgs skipped: <code>{deleted}</code>\n"
+                            f"🚫 Non-media skipped: <code>{no_media + unsupported}</code> "
+                            f"(unsupported: <code>{unsupported}</code>)\n"
+                            f"⚠️ Errors: <code>{errors}</code>\n\n"
+                            f"<i>Notifying every {LARGE_DB_NOTIFY_EVERY} files saved.</i>"
+                        )
+                        await safe_edit_nonblocking(msg, progress_text, reply_markup=reply)
+
+                else:
+                    # SMALL DB: count-gated, blocking (original behaviour)
+                    if current % SMALL_DB_UPDATE_INTERVAL == 0:
+                        can = [[InlineKeyboardButton('Cancel', callback_data='index_cancel')]]
+                        reply = InlineKeyboardMarkup(can)
+                        progress_text = (
+                            f"Total messages fetched: <code>{current}</code>\n"
+                            f"Total messages saved: <code>{total_files}</code>\n"
+                            f"Duplicate Files Skipped: <code>{duplicate}</code>\n"
+                            f"Deleted Messages Skipped: <code>{deleted}</code>\n"
+                            f"Non-Media messages skipped: <code>{no_media + unsupported}</code>"
+                            f"(Unsupported Media - `{unsupported}` )\n"
+                            f"Errors Occurred: <code>{errors}</code>"
+                        )
+                        await safe_edit(msg, progress_text, reply_markup=reply)
+
+                # ── Media processing (unchanged) ───────────────────────────
                 if message.empty:
                     deleted += 1
                     continue
@@ -230,8 +418,25 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     duplicate += 1
                 elif vnay == 2:
                     errors += 1
+
         except Exception as e:
             logger.exception(e)
-            await msg.edit(f'Error baby: {e}')
+            if large_db:
+                await safe_edit_nonblocking(msg, f'Error baby: {e}')
+            else:
+                await safe_edit(msg, f'Error baby: {e}')
         else:
-            await msg.edit(f'Succesfully saved <code>{total_files}</code> to dataBase!\nDuplicate Files Skipped: <code>{duplicate}</code>\nDeleted Messages Skipped: <code>{deleted}</code>\nNon-Media messages skipped: <code>{no_media + unsupported}</code>(Unsupported Media - `{unsupported}` )\nErrors Occurred: <code>{errors}</code>')
+            done_text = (
+                f"✅ <b>Indexing Complete!</b>\n\n"
+                f"{'🗂 Large DB Mode\n\n' if large_db else ''}"
+                f"Files saved: <code>{total_files}</code>\n"
+                f"Duplicate Files Skipped: <code>{duplicate}</code>\n"
+                f"Deleted Messages Skipped: <code>{deleted}</code>\n"
+                f"Non-Media messages skipped: <code>{no_media + unsupported}</code>"
+                f"(Unsupported Media - `{unsupported}` )\n"
+                f"Errors Occurred: <code>{errors}</code>"
+            )
+            if large_db:
+                await safe_edit_nonblocking(msg, done_text)
+            else:
+                await safe_edit(msg, done_text)
