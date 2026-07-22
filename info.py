@@ -55,8 +55,8 @@ LAZY_DIVERTING_CHANNEL = int(environ.get('LAZY_DIVERTING_CHANNEL', '-10038541933
 # DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://sanubot:sanubot@telegrambots.qjo13uy.mongodb.net/?appName=telegrambots")
 # DATABASE_NAME = environ.get('DATABASE_NAME', "telegrambots")
 # COLLECTION_NAME = environ.get('COLLECTION_NAME', 'LazyDeveloperr')
-DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://lazydeveloperr:lazydeveloperr@lazydeveloperr.r5xrpcd.mongodb.net/?appName=lazydeveloperr")
-# DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://sanubot:sanubot@telegrambots.qjo13uy.mongodb.net/?appName=telegrambots")
+
+DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://sanuu:sanuu@lazydeveloperr.qegotgx.mongodb.net/?appName=lazydeveloperr")
 DATABASE_NAME = environ.get('DATABASE_NAME', "lazydeveloperr")
 COLLECTION_NAME = environ.get('COLLECTION_NAME', 'Lazy_files')
 
