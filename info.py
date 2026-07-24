@@ -29,8 +29,10 @@ def is_enabled(value, default):
 SESSION = environ.get('SESSION', 'Media_search')
 API_ID = environ.get("API_ID", "17319714")
 API_HASH = environ.get("API_HASH", "4214385b4b215e55e69ae2746d3421b7")
-BOT_TOKEN = environ.get("BOT_TOKEN", "8621562044:AAH-AmU-Lu2EYE1T9GL0bQ8FR2THt1_Rnjg") 
-REDIS_URI = environ.get("REDIS_URI", "redis://default:pS1PiMTAbrZ6Eh1Isbk3qGlRYaHSs3Hx@powder-tin-lichen-38833.db.redis.io:14241")
+# BOT_TOKEN = environ.get("BOT_TOKEN", "8621562044:AAH-AmU-Lu2EYE1T9GL0bQ8FR2THt1_Rnjg") 
+# REDIS_URI = environ.get("REDIS_URI", "redis://default:pS1PiMTAbrZ6Eh1Isbk3qGlRYaHSs3Hx@powder-tin-lichen-38833.db.redis.io:14241")
+BOT_TOKEN = environ.get("BOT_TOKEN", "8033881497:AAGcqyMP8ck9pw36OSyJS3_x7locnauZWY0") 
+REDIS_URI = environ.get("REDIS_URI", "redis://default:xIrwgNzBwOJeIaSbWyvndsRdQEjwBmvZ@account-loyal-parchment-74118.db.redis.io:12821")
 
 # Bot settings
 CACHE_TIME = int(environ.get('CACHE_TIME', 300))
