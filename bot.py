@@ -36,15 +36,8 @@ from lazybot import LazyPrincessBot
 from lazybot.clients import initialize_clients
 from util.keepalive import ping_server
 
-# Use standard asyncio loop for Pyrogram update listener compatibility on Linux Python 3.13
-if os.name != 'nt':
-    try:
-        import uvloop
-        import asyncio
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-        logging.info("⚡ High-Performance uvloop Event Loop Installed!")
-    except Exception as e:
-        logging.info(f"uvloop status: {e}")
+# Standard asyncio event loop for Pyrogram update listener compatibility
+logging.info("⚡ Standard Asyncio Event Loop Active!")
 
 PORT = "8080"
 LazyPrincessBot.start()
