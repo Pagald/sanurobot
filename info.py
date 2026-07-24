@@ -1,3 +1,11 @@
+# 🚀 Global Public DNS Patch to prevent MongoDB SRV DNS Timeouts on Windows/Cloud
+try:
+    import dns.resolver
+    dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
+    dns.resolver.default_resolver.nameservers = ['8.8.8.8', '1.1.1.1', '8.8.4.4', '1.0.0.1']
+except Exception:
+    pass
+
 import re
 from os import getenv, environ
 import logging
@@ -22,19 +30,20 @@ SESSION = environ.get('SESSION', 'Media_search')
 API_ID = environ.get("API_ID", "17319714")
 API_HASH = environ.get("API_HASH", "4214385b4b215e55e69ae2746d3421b7")
 BOT_TOKEN = environ.get("BOT_TOKEN", "8621562044:AAH-AmU-Lu2EYE1T9GL0bQ8FR2THt1_Rnjg") 
+REDIS_URI = environ.get("REDIS_URI", "redis://default:pS1PiMTAbrZ6Eh1Isbk3qGlRYaHSs3Hx@powder-tin-lichen-38833.db.redis.io:14241")
 
 # Bot settings
 CACHE_TIME = int(environ.get('CACHE_TIME', 300))
 USE_CAPTION_FILTER = bool(environ.get('USE_CAPTION_FILTER', False))
-# PICS = (environ.get('PICS', 'https://telegra.ph/file/7e56d907542396289fee4.jpg https://telegra.ph/file/9aa8dd372f4739fe02d85.jpg https://telegra.ph/file/adffc5ce502f5578e2806.jpg https://telegra.ph/file/6937b60bc2617597b92fd.jpg https://telegra.ph/file/09a7abaab340143f9c7e7.jpg https://telegra.ph/file/5a82c4a59bd04d415af1c.jpg https://telegra.ph/file/323986d3bd9c4c1b3cb26.jpg https://telegra.ph/file/b8a82dcb89fb296f92ca0.jpg https://telegra.ph/file/31adab039a85ed88e22b0.jpg https://telegra.ph/file/c0e0f4c3ed53ac8438f34.jpg https://telegra.ph/file/eede835fb3c37e07c9cee.jpg https://telegra.ph/file/e17d2d068f71a9867d554.jpg https://telegra.ph/file/8fb1ae7d995e8735a7c25.jpg https://telegra.ph/file/8fed19586b4aa019ec215.jpg https://telegra.ph/file/8e6c923abd6139083e1de.jpg https://telegra.ph/file/0049d801d29e83d68b001.jpg')).split()
 PRIME_LOGO = (environ.get('PRIME_LOGO', 'https://telegra.ph/file/ca18e2c794f4ea1c3135b.jpg'))
+MAX_BUDDY_PER_PAGE = int(environ.get('MAX_BUDDY_PER_PAGE', 1))
+MAX_TRANSACTION_PER_PAGE = int(environ.get('MAX_TRANSACTION_PER_PAGE', 1))
 
-# WISH_PICS = (environ.get('WISH_PICS', 'https://i.ibb.co/VNB60cK/Untitled-design-20241231-135231-0000.png')).split()
 PICS = (environ.get('PICS', 'https://i.ibb.co/XrFqMH1f/photo-2026-07-21-01-00-50.jpg https://i.ibb.co/XrFqMH1f/photo-2026-07-21-01-00-50.jpg')).split()
 
 # payment
-QR_CODE_IMG = environ.get('QR_CODE_IMG','https://telegra.ph/file/ca18e2c794f4ea1c3135b.jpg') #add url link of your qr code to recieve money - use telegraph bot or other source to get image
-UPI_ID = environ.get('UPI_ID', 'lazydeveloper@ybl') #enter your upi id here - grab it from your online payment methods.
+QR_CODE_IMG = environ.get('QR_CODE_IMG','https://telegra.ph/file/ca18e2c794f4ea1c3135b.jpg')
+UPI_ID = environ.get('UPI_ID', 'lazydeveloper@ybl')
 
 # Admins, Channels & Users *
 ADMINS = [int(admin) if id_pattern.search(admin) else admin for admin in environ.get('ADMINS', '5965340120 1132179847 5239277037').split()]
@@ -48,14 +57,8 @@ AUTH_GROUPS = [int(ch) for ch in auth_grp.split()] if auth_grp else None
 
 AUTH_CHANNEL = [int(cha) if id_pattern.search(cha) else cha for cha in environ.get('AUTH_CHANNEL', '').split()]
 LAZY_DIVERTING_CHANNEL = int(environ.get('LAZY_DIVERTING_CHANNEL', '-1003854193310'))
-# LAZY_DIVERTING_CHANNEL = int(environ.get('LAZY_DIVERTING_CHANNEL', ''))
-
 
 # MongoDB information *
-# DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://sanubot:sanubot@telegrambots.qjo13uy.mongodb.net/?appName=telegrambots")
-# DATABASE_NAME = environ.get('DATABASE_NAME', "telegrambots")
-# COLLECTION_NAME = environ.get('COLLECTION_NAME', 'LazyDeveloperr')
-
 DATABASE_URI = environ.get('DATABASE_URI', "mongodb+srv://sanuu:sanuu@lazydeveloperr.qegotgx.mongodb.net/?appName=lazydeveloperr")
 DATABASE_NAME = environ.get('DATABASE_NAME', "lazydeveloperr")
 COLLECTION_NAME = environ.get('COLLECTION_NAME', 'Lazy_files')
@@ -69,13 +72,13 @@ PRIME_MEMBERS_LOGS = int(environ.get('PRIME_MEMBERS_LOGS', '-1002196135580'))
 
 # PREMIUM ACCESS *
 lazydownloaders = [int(lazydownloaders) if id_pattern.search(lazydownloaders) else lazydownloaders for lazydownloaders in environ.get('PRIME_DOWNLOADERS', '5965340120 6126812037').split()]
-PRIME_USERS = (lazydownloaders) if lazydownloaders else [] # users who can get & download file without url shortner
+PRIME_USERS = (lazydownloaders) if lazydownloaders else []
 lazy_renamers = [int(lazrenamers) if id_pattern.search(lazrenamers) else lazrenamers for lazrenamers in environ.get('LAZY_RENAMERS', '5965340120 6126812037').split()]
-LAZY_RENAMERS = (lazy_renamers + ADMINS) if lazy_renamers else [] #Add user id of the user in this field those who you want to be Authentic user for file renaming features
+LAZY_RENAMERS = (lazy_renamers + ADMINS) if lazy_renamers else []
 LZURL_PRIME_USERS = [int(lazyurlers) if id_pattern.search(lazyurlers) else lazyurlers for lazyurlers in environ.get('LZURL_PRIME_USERS', '5965340120 6126812037').split()]
 
 # Others
-TUTORIAL = environ.get('TUTORIAL', 'https://t.me/real_moviesadda6') # Tutorial video link for opening shortlink website 
+TUTORIAL = environ.get('TUTORIAL', 'https://t.me/real_moviesadda6')
 IS_TUTORIAL = bool(environ.get('IS_TUTORIAL', True))
 SUPPORT_CHAT = environ.get('SUPPORT_CHAT', '+EpZuHPEWXNswOGY8')
 P_TTI_SHOW_OFF = is_enabled((environ.get('P_TTI_SHOW_OFF', "True")), False)
@@ -86,12 +89,6 @@ BATCH_FILE_CAPTION = environ.get("BATCH_FILE_CAPTION", CUSTOM_FILE_CAPTION)
 
 IMDB_TEMPLATE = environ.get("IMDB_TEMPLATE", "<a href={url}>{title} {year}</a>\n❤You searched: {query}")
 
-# IMDB_TEMPLATE = environ.get("IMDB_TEMPLATE", """
-# <b>★<a href={url}/ratings>{rating}</a> <a href={url}>{title}</a> {year}</b>
-# 𓆩ཫDirector : {director} | 🎥 {genres}
-# ✵You Searched for: {query} ❤
-# """)
-
 LONG_IMDB_DESCRIPTION = is_enabled(environ.get("LONG_IMDB_DESCRIPTION", "False"), False)
 SPELL_CHECK_REPLY = is_enabled(environ.get("SPELL_CHECK_REPLY", "False"), False)
 MAX_LIST_ELM = environ.get("MAX_LIST_ELM", None)
@@ -101,34 +98,30 @@ MELCOW_NEW_USERS = is_enabled((environ.get('MELCOW_NEW_USERS', "True")), True)
 PROTECT_CONTENT = is_enabled((environ.get('PROTECT_CONTENT', "False")), False)
 PUBLIC_FILE_STORE = is_enabled((environ.get('PUBLIC_FILE_STORE', "False")), False)
 
-#LazyRenamer Configs
+# LazyRenamer Configs
 FLOOD = int(environ.get("FLOOD", "10"))
-LAZY_MODE = bool(environ.get("LAZY_MODE", False)) #make it true to enable file renaming feature in bot
-
+LAZY_MODE = bool(environ.get("LAZY_MODE", False))
 
 # Requested Content template variables --- 
-ADMIN_USRNM = environ.get('ADMIN_USRNM','Husen751') # WITHOUT @
-MAIN_CHANNEL_USRNM = environ.get('MAIN_CHANNEL_USRNM','SANUMovies02') # WITHOUT @
-DEV_CHANNEL_USRNM = environ.get('DEV_CHANNEL_USRNM','SANUMovies02') # WITHOUT @
-LAZY_YT_HANDLE = environ.get('LAZY_YT_HANDLE','LayDeveloperr')  # WITHOUT @ [  add only handle - don't add full url  ] 
-MOVIE_GROUP_USERNAME = environ.get('MOVIE_GROUP_USERNAME', "WebSeries_Movie_Request_Groups") #[ without @ ]
+ADMIN_USRNM = environ.get('ADMIN_USRNM','Husen751')
+MAIN_CHANNEL_USRNM = environ.get('MAIN_CHANNEL_USRNM','SANUMovies02')
+DEV_CHANNEL_USRNM = environ.get('DEV_CHANNEL_USRNM','SANUMovies02')
+LAZY_YT_HANDLE = environ.get('LAZY_YT_HANDLE','LayDeveloperr')
+MOVIE_GROUP_USERNAME = environ.get('MOVIE_GROUP_USERNAME', "WebSeries_Movie_Request_Groups")
 
 # Url Shortner
-URL_MODE = is_enabled((environ.get("URL_MODE","True")), False) # make it true to enable url shortner in groups or pm
-URL_SHORTENR_WEBSITE = environ.get('URL_SHORTENR_WEBSITE', 'atglinks.com') #Always use website url from api section 
+URL_MODE = is_enabled((environ.get("URL_MODE","True")), False)
+URL_SHORTENR_WEBSITE = environ.get('URL_SHORTENR_WEBSITE', 'atglinks.com')
 URL_SHORTNER_WEBSITE_API = environ.get('URL_SHORTNER_WEBSITE_API', '72a7f0131e5e657e37cf7e2a9e928a616b671cf5')
 
-#4 => verification_steps ! [Youtube@LazyDeveloperr]
-# URL SHORTNER FOR USER VERIFICATION
-
-IS_LAZYUSER_VERIFICATION = is_enabled((environ.get("IS_LAZYUSER_VERIFICATION","True")), False) # make it true to enable url shortner in groups or pm
+IS_LAZYUSER_VERIFICATION = is_enabled((environ.get("IS_LAZYUSER_VERIFICATION","True")), False)
 LAZY_SHORTNER_URL = environ.get('LAZY_SHORTNER_URL', 'atglinks.com')
-LAZY_SHORTNER_API = environ.get('LAZY_SHORTNER_API', '72a7f0131e5e657e37cf7e2a9e928a616b671cf5') #Always use website url from api section 
+LAZY_SHORTNER_API = environ.get('LAZY_SHORTNER_API', '72a7f0131e5e657e37cf7e2a9e928a616b671cf5')
 
 lazy_groups = environ.get('LAZY_GROUPS','-1002127686518')
-LAZY_GROUPS = [int(lazy_groups) for lazy_groups in lazy_groups.split()] if lazy_groups else None # ADD GROUP ID IN THIS VARIABLE 
+LAZY_GROUPS = [int(lazy_groups) for lazy_groups in lazy_groups.split()] if lazy_groups else None
 my_users = [int(my_users) if id_pattern.search(my_users) else my_users for my_users in environ.get('MY_USERS', '5965340120 6126812037').split()]
-MY_USERS = (my_users) if my_users else [] #input the id of that users who can share file in file protection mode
+MY_USERS = (my_users) if my_users else []
 
 # Online Stream and Download
 PORT = int(environ.get('PORT', 8080))
@@ -144,15 +137,14 @@ FQDN = str(getenv('FQDN', BIND_ADRESS)) if not ON_HEROKU or getenv('FQDN') else 
 URL = "https://{}/".format(FQDN) if ON_HEROKU or NO_PORT else \
     "http://{}:{}/".format(FQDN, PORT)
 SLEEP_THRESHOLD = int(environ.get('SLEEP_THRESHOLD', '60'))
-WORKERS = int(environ.get('WORKERS', '4'))
+WORKERS = int(environ.get('WORKERS', '8'))
 SESSION_NAME = str(environ.get('SESSION_NAME', 'LazyBot'))
 MULTI_CLIENT = False
 name = str(environ.get('name', 'LazyPrincess'))
-PING_INTERVAL = int(environ.get("PING_INTERVAL", "1200"))  # 20 minutes
+PING_INTERVAL = int(environ.get("PING_INTERVAL", "1200"))
 if 'DYNO' in environ:
     ON_HEROKU = True
     APP_NAME = str(getenv('APP_NAME'))
-
 else:
     ON_HEROKU = False
 HAS_SSL=bool(getenv('HAS_SSL',False))
@@ -163,13 +155,9 @@ else:
 BANNED_CHANNELS = list(set(int(x) for x in str(getenv("BANNED_CHANNELS", "-1001987654567")).split())) 
 OWNER_USERNAME = "LazyDeveloper"
 
-
-# 
 templist = []
 channel_ids_str = " ".join(map(str, templist))
 LAZYDEVELOPER_CHANNELS = [int(c) for c in channel_ids_str.split()]
-
-
 
 lazydownloaders = [int(lazydownloaders) if id_pattern.search(lazydownloaders) else lazydownloaders for lazydownloaders in environ.get('PRIME_DOWNLOADERS', '').split()]
 PRIME_DOWNLOADERS = (lazydownloaders) if lazydownloaders else []
@@ -188,7 +176,6 @@ PROCESS_MAX_TIMEOUT = 0
 DEF_WATER_MARK_FILE = ""
 LOGGER = logging
 
-# Adding Language Feature : 
 LANGUAGES = ["hindi", "hin", "english", "eng", "korean", "kor", "urdu", "urd","chinese","chin","tamil", "tam", "malayalam", "mal",  "telugu", "tel", "kannada", "kan"]
 SEASONS = ["season 1" , "season 2" , "season 3" , "season 4", "season 5" , "season 6" , "season 7" , "season 8" , "season 9" , "season 10"]
 QUALITIES = ["360P", "", "480P", "", "720P", "", "1080P", "", "1440P", "", "2160P", ""]
@@ -196,50 +183,42 @@ QUALITIES = ["360P", "", "480P", "", "720P", "", "1080P", "", "1440P", "", "2160
 MAX_LAZY_BTNS = int(environ.get("MAX_LAZY_BTNS", "6"))
 MAX_BTN = is_enabled((environ.get('MAX_BTN', "True")), True)
 
-# Auto Delete For Group Message (Self Delete) #
 SELF_DELETE_SECONDS = int(environ.get('SELF_DELETE_SECONDS', 300))
 SELF_DELETE = environ.get('SELF_DELETE', True)
 if SELF_DELETE == "True":
     SELF_DELETE = True
 
 DISCUSSION_TITLE = "Click Here"
-DISCUSSION_CHAT_USRNM = "Discusss_Here" #without @
+DISCUSSION_CHAT_USRNM = "Discusss_Here"
 
-# Download Tutorial Button #
 DOWNLOAD_TEXT_NAME = "📥 HOW TO DOWNLOAD 📥"
 DOWNLOAD_TEXT_URL = "https://t.me/+tgPf04FXMOllMWVl"
 
-# Custom Caption Under Button #
 CAPTION_BUTTON = "Get Updates"
 CAPTION_BUTTON_URL = "https://t.me/+tgPf04FXMOllMWVl"
 
-# configuration
-MAX_SUBSCRIPTION_TIME = int(environ.get('MAX_SUBSCRIPTION_TIME', '24')) # KEEP THIS VALUES IN HOURS ⏰🕛
-FILE_AUTO_DELETE_TIME = int(environ.get('FILE_AUTO_DELETE_TIME', '300')) #in seconds - 300 seconds ==> 5 minutes 
-GROUP_MSG_DELETE_TIME = int(environ.get('GROUP_MSG_DELETE_TIME', '300')) #in seconds - 600 seconds ==> 10 minutes 
-# DONATION_LINK = environ.get("DONATION_LINK","https://buymeacoffee.com/lazydeveloperr")
+MAX_SUBSCRIPTION_TIME = int(environ.get('MAX_SUBSCRIPTION_TIME', '24'))
+FILE_AUTO_DELETE_TIME = int(environ.get('FILE_AUTO_DELETE_TIME', '300'))
+GROUP_MSG_DELETE_TIME = int(environ.get('GROUP_MSG_DELETE_TIME', '300'))
 DONATION_LINK = environ.get("DONATION_LINK","https://buymeacoffee.com/lazyDeveloperr")
-CHANNELS_PER_PAGE = 8 # AUTH CHANELS LISTS ## FOR ADMINS ❤
+CHANNELS_PER_PAGE = 8
 DAILY_LIMIT = 2
 
 MAX_SEASONS_PER_PAGE = 12
-MAX_EPISODES_LIST = 12 ## FOR SEASON BTN ❤
-MAX_EPISODES_PER_PAGE = 6 ## FOR SEASON BTN ❤
+MAX_EPISODES_LIST = 12
+MAX_EPISODES_PER_PAGE = 6
 
-MAX_LANG_PER_PAGE = 10 ## FOR SEASON BTN ❤
-MAX_LANG_FILE_PER_PAGE = 6 ## FOR SEASON BTN ❤
+MAX_LANG_PER_PAGE = 10
+MAX_LANG_FILE_PER_PAGE = 6
 
-MAX_QUAL_PER_PAGE = 10 ## FOR SEASON BTN ❤
-MAX_QUAL_FILE_PER_PAGE = 6 ## FOR SEASON BTN ❤
+MAX_QUAL_PER_PAGE = 10
+MAX_QUAL_FILE_PER_PAGE = 6
 
 CHANNEL_NAME = "Hidden Xman"
-# BACK_BTN_TXT = "⋞ ʙᴀᴄᴋ" #◀️
-# NEXT_BTN_TXT = "ɴᴇxᴛ ⋟" #▶️
-BACK_BTN_TXT = "◀️" # ⋞ ʙᴀᴄᴋ
-NEXT_BTN_TXT = "▶️" # ɴᴇxᴛ ⋟
+BACK_BTN_TXT = "◀️"
+NEXT_BTN_TXT = "▶️"
 
-# SENSITIVE VARS
-LAZYCONTAINER = {}  #DON'T TOUCH THIS VAR !
+LAZYCONTAINER = {}
 
 LOG_STR = "🚀Current Cusomized Configurations are:-\n"
 LOG_STR += ("𓆩ཫ⚙ཀ𓆪 IMDB Results are enabled, Bot will be showing imdb details for you queries.\n" if IMDB else "IMBD Results are disabled.\n")
