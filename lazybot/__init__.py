@@ -36,7 +36,7 @@ class LazyPrincessXBot(Client):
             api_id=API_ID,
             api_hash=API_HASH,
             bot_token=BOT_TOKEN,
-            workers=15,          # 8 is optimal — prevents context-switching overhead
+            workers=50,          # 8 is optimal — prevents context-switching overhead
             plugins={"root": "plugins"},
             sleep_threshold=5,
         )
