@@ -184,7 +184,7 @@ async def doc(bot, update):
 @Client.on_callback_query(filters.regex(r"^next"))
 async def next_page(bot, query):
     try:
-        if int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
+        if query.message.reply_to_message and int(query.from_user.id) not in [query.message.reply_to_message.from_user.id, 0]:
             msg1 = to_small_caps(f"♥ It's {query.message.reply_to_message.from_user.first_name}'s files. ♥")
             msg2 = to_small_caps(f"🚩 Please search your own. 📺")
             return await query.answer(
@@ -193,20 +193,20 @@ async def next_page(bot, query):
             )
     except Exception:
         pass
-    # 
+
     ident, req, key, offset = query.data.split("_")
     try:
         offset = int(offset)
-    except:
+    except Exception:
         offset = 0
 
-    if BUTTONS.get(key)!=None:
+    if BUTTONS.get(key) is not None:
         search = BUTTONS.get(key)
     else:
         search = FRESH.get(key)
     
     chat_id = query.message.chat.id
-    lazy_id = query.message.reply_to_message.id
+    lazy_id = query.message.reply_to_message.id if query.message.reply_to_message else query.message.id
     lazyuser_id = query.from_user.id
     if not search:
         await query.answer("⚠ Query violation detected! Please send the request again with proper movie name.", show_alert=True)
@@ -215,7 +215,7 @@ async def next_page(bot, query):
     files, n_offset, total = await get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, search, offset=offset, filter=True)
     try:
         n_offset = int(n_offset)
-    except:
+    except Exception:
         n_offset = 0
 
     if not files:
@@ -226,7 +226,7 @@ async def next_page(bot, query):
     pre = 'filep' if settings['file_secure'] else 'file'
     
     try:
-        if temp.SHORT.get(lazyuser_id)==None:
+        if temp.SHORT.get(lazyuser_id) is None:
             return await query.reply_text(text="<b>Please Search Again in Group</b>")
         else:
             chat_id = temp.SHORT.get(lazyuser_id)
@@ -241,71 +241,41 @@ async def next_page(bot, query):
             ]
             for file in files
         ]
-
     else:
         btn = [
-                [
-                    InlineKeyboardButton(text=f"{file.file_name}",callback_data=f'{pre}#{file.file_id}',),
-                    InlineKeyboardButton(text=f"{get_size(file.file_size)}",callback_data=f'{pre}#{file.file_id}',),
-                ]
-                for file in files
-                ]
+            [
+                InlineKeyboardButton(text=f"{file.file_name}", callback_data=f'{pre}#{file.file_id}'),
+                InlineKeyboardButton(text=f"{get_size(file.file_size)}", callback_data=f'{pre}#{file.file_id}'),
+            ]
+            for file in files
+        ]
         
     btn.insert(0, [
         InlineKeyboardButton(f"🎖 {to_small_caps('LATEST MOVIE UPLOADED')}🎖", url=f"https://t.me/+rYEsBW04zHY0MDg1")
     ])
-    # btn.insert(0, [
-    #     InlineKeyboardButton(f"𓆩ཫ🔻 {to_small_caps('Select Season')} 🔻ཀ𓆪", callback_data=f"seasons#{key}")
-    # ])
-    # btn.insert(0, 
-    #     [
-    #         InlineKeyboardButton(f'𓆩ཫ⭕• ǫᴜᴀʟɪᴛʏ', callback_data=f"qualities#{key}"),
-    #         InlineKeyboardButton("ʟᴀɴɢᴜᴀɢᴇ •⭕ཀ𓆪", callback_data=f"languages#{key}"),
-    #     ])
-    # # btn.insert(0, [
-    # #         InlineKeyboardButton("♨️ ꜱᴇɴᴅ ᴀʟʟ ꜰɪʟᴇꜱ ♨️", callback_data=f"sendfiles#{key}")
-    # #     ])
-    # btn.insert(0,
-    #         [ 
-    #         InlineKeyboardButton(text="🚀Trending", callback_data=f"trending#lazytrends#{key}"),
-    #         InlineKeyboardButton(text="♥ᴘᴏᴘᴜʟᴀʀ", callback_data=f"popular#lazyshort#{key}"),
-    #         # InlineKeyboardButton(text="# ʀᴇQᴜᴇsᴛ", url=f'https://t.me/{temp.U_NAME}?start=requestmovie'),
-    #         ])
-    # # btn.insert(0,
-    # #     [ 
-	# #     InlineKeyboardButton(text="⚡ ʜᴏᴡ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ ⚡", url='https://telegram.me/+lI9zStHfHlllNjQ1'),
-    # #     ] 
-    # # )
-    if 0 < offset <= 10:
-        off_set = 0
-    elif offset == 0:
-        off_set = None
-    else:
-        off_set = offset - 10
-    if n_offset == 0:
-        btn.append(
-            [InlineKeyboardButton(f"{BACK_BTN_TXT}", callback_data=f"next_{req}_{key}_{off_set}"),
-             InlineKeyboardButton(f"📃 Pages {math.ceil(int(offset) / 10) + 1} / {math.ceil(total / 10)}",
-                                  callback_data="pages")]
-        )
-    elif off_set is None:
-        btn.append(
-            [InlineKeyboardButton(f"🗓 {math.ceil(int(offset) / 10) + 1} / {math.ceil(total / 10)}", callback_data="pages"),
-             InlineKeyboardButton(f"{NEXT_BTN_TXT}", callback_data=f"next_{req}_{key}_{n_offset}")])
-    else:
-        btn.append(
-            [
-                InlineKeyboardButton(f"{BACK_BTN_TXT}", callback_data=f"next_{req}_{key}_{off_set}"),
-                InlineKeyboardButton(f"🗓 {math.ceil(int(offset) / 10) + 1} / {math.ceil(total / 10)}", callback_data="pages"),
-                InlineKeyboardButton(f"{NEXT_BTN_TXT}", callback_data=f"next_{req}_{key}_{n_offset}")
-            ],
-        )
+
+    page_size = int(MAX_LAZY_BTNS) if MAX_LAZY_BTNS else 10
+    total_num = int(total) if total else 0
+    total_pages = math.ceil(total_num / page_size) if total_num > 0 else 1
+    current_page = math.ceil(offset / page_size) + 1 if total_num > 0 else 1
+
+    prev_offset = max(0, offset - page_size) if offset >= page_size else None
+    next_offset_val = n_offset if n_offset > 0 else None
+
+    nav_buttons = []
+    if prev_offset is not None:
+        nav_buttons.append(InlineKeyboardButton(f"{BACK_BTN_TXT}", callback_data=f"next_{req}_{key}_{prev_offset}"))
+    nav_buttons.append(InlineKeyboardButton(f"🗓 {current_page}/{total_pages}", callback_data="pages"))
+    if next_offset_val is not None:
+        nav_buttons.append(InlineKeyboardButton(f"{NEXT_BTN_TXT}", callback_data=f"next_{req}_{key}_{next_offset_val}"))
+
+    btn.append(nav_buttons)
+
     try:
         await query.edit_message_reply_markup(
             reply_markup=InlineKeyboardMarkup(btn)
         )
     except FloodWait as lazydeveloper:
-        # e.seconds is available in Pyrogram's FloodWait error.
         wait_time = lazydeveloper.value
         await query.answer(
             f"💔 Whoa, slow down, my love! You've been clicking too fast.\n\n"
@@ -378,7 +348,7 @@ async def advantage_spoll_choker(bot, query):
             await auto_filter(bot, query, k)
         else:
             k = await query.message.edit("Oops! No results found for your query\nPlease request another...")
-            await asyncio.sleep(60)
+            await asyncio.sleep(30)
             await k.delete()
             try:
                 await query.message.reply_to_message.delete()
@@ -3022,14 +2992,9 @@ async def auto_filter(client, msg, spoll=False):
 
     #waiting user to complete imdb process @LazyDeveloperr
     user = message.from_user
-    full_name = user.first_name + " " + user.last_name if user.last_name else user.first_name
-    # waiting overs here @LazyDeveloperr
-    #top = await db.get_top_searches()
-    
-    waiting_message = await message.reply_text(f"Setting up your request {full_name}...")
-    imdb = await get_poster(search, file=(files[0]).file_name) if settings["imdb"] else None
+    file_name_val = (files[0]).file_name if (files and len(files) > 0) else None
+    imdb = await get_poster(search, file=file_name_val) if (settings["imdb"] and file_name_val) else None
     TEMPLATE = settings['template']
-    await waiting_message.delete()
     if imdb:
         cap = TEMPLATE.format(
             query=search,
@@ -3040,18 +3005,18 @@ async def auto_filter(client, msg, spoll=False):
             localized_title=imdb['localized_title'],
             kind=imdb['kind'],
             imdb_id=imdb["imdb_id"],
-            cast=imdb["cast"],
-            runtime=imdb["runtime"],
-            countries=imdb["countries"],
-            certificates=imdb["certificates"],
-            languages=imdb["languages"],
-            director=imdb["director"],
-            writer=imdb["writer"],
-            producer=imdb["producer"],
-            composer=imdb["composer"],
-            cinematographer=imdb["cinematographer"],
-            music_team=imdb["music_team"],
-            distributors=imdb["distributors"],
+            cast=imdb['cast'],
+            runtime=imdb['runtime'],
+            countries=imdb['countries'],
+            certificates=imdb['certificates'],
+            languages=imdb['languages'],
+            director=imdb['director'],
+            writer=imdb['writer'],
+            producer=imdb['producer'],
+            composer=imdb['composer'],
+            cinematographer=imdb['cinematographer'],
+            music_team=imdb['music_team'],
+            distributors=imdb['distributors'],
             release_date=imdb['release_date'],
             year=imdb['year'],
             genres=imdb['genres'],
@@ -3149,7 +3114,7 @@ async def advantage_spell_chok(message):
         movies = await get_poster(search, bulk=True)
     except:
         k = await message.reply(script.I_CUDNT.format(message.from_user.mention))
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)
         await k.delete()
         try:
             await message.delete()
@@ -3162,7 +3127,7 @@ async def advantage_spell_chok(message):
             InlineKeyboardButton("🔍 ᴄʜᴇᴄᴋ sᴘᴇʟʟɪɴɢ ᴏɴ ɢᴏᴏɢʟᴇ 🔍", url=f"https://www.google.com/search?q={google}")
         ]]
         k = await message.reply_text(text=script.I_CUDNT.format(search), reply_markup=InlineKeyboardMarkup(button))
-        await asyncio.sleep(120)
+        await asyncio.sleep(30)
         await k.delete()
         try:
             await message.delete()
@@ -3183,7 +3148,7 @@ async def advantage_spell_chok(message):
         [InlineKeyboardButton(text="🚮 ᴄʟᴏsᴇ 🧺", callback_data='close_data')]
     )
     d = await message.reply_text(text=script.CUDNT_FND.format(message.from_user.mention), reply_markup=InlineKeyboardMarkup(buttons), reply_to_message_id=message.id)
-    await asyncio.sleep(120)
+    await asyncio.sleep(30)
     await d.delete()
     try:
         await message.delete()

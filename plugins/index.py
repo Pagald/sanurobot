@@ -1,161 +1,115 @@
 import logging
 import asyncio
-from pyrogram import Client, filters, enums
-from pyrogram.errors import FloodWait, MessageNotModified
-from pyrogram.errors.exceptions.bad_request_400 import ChannelInvalid, ChatAdminRequired, UsernameInvalid, UsernameNotModified
-from info import ADMINS, LAZY_RENAMERS
-from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
-from info import LAZY_MODE 
-from database.ia_filterdb import save_file
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from utils import temp
 import re
+import time
 import humanize
-from info import ADMINS 
-from lazybot import LazyPrincessBot 
+from pyrogram import Client, filters, enums
+from pyrogram.errors import FloodWait
+from pyrogram.errors.exceptions.bad_request_400 import ChannelInvalid, ChatAdminRequired, UsernameInvalid, UsernameNotModified
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+from info import ADMINS, LAZY_RENAMERS, LAZY_MODE
+from info import INDEX_REQ_CHANNEL as LOG_CHANNEL
+from database.ia_filterdb import save_file, save_files_batch
+from utils import temp, to_small_caps
+from lazybot import LazyPrincessBot
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 lock = asyncio.Lock()
-semaphore = asyncio.Semaphore(1) # create a semaphore with initial value of 1
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Helper: safe edit for Small DB — waits out FloodWait and retries
-# ─────────────────────────────────────────────────────────────────────────────
-async def safe_edit(msg, text, reply_markup=None):
-    """Edit a message and silently wait out any FloodWait before retrying (Small DB mode)."""
-    while True:
-        try:
-            if reply_markup:
-                await msg.edit_text(text=text, reply_markup=reply_markup)
-            else:
-                await msg.edit(text)
-            break
-        except FloodWait as fw:
-            logger.warning(f"FloodWait: sleeping {fw.value}s before retrying edit...")
-            await asyncio.sleep(fw.value + 2)
-        except Exception:
-            break  # non-flood errors — just skip this update
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helper: safe edit for Large DB — SKIPS the edit on FloodWait (non-blocking)
-# This is the key difference: we never block the indexing loop waiting for Telegram.
-# ─────────────────────────────────────────────────────────────────────────────
-async def safe_edit_nonblocking(msg, text, reply_markup=None):
-    """Try to edit a message. If FloodWait hits, log and skip — never block (Large DB mode)."""
+# ─── DB-size choice step: ask Large or Small before indexing ──────────────────
+
+@Client.on_callback_query(filters.regex(r'^dbsize#'))
+async def dbsize_choice(bot, query):
+    _, db_type, chat, lst_msg_id, from_user = query.data.split("#")
+
+    if lock.locked():
+        return await query.answer('Wait until previous process complete.', show_alert=True)
+
+    await query.answer(f"Starting {db_type.title()} DB indexing…", show_alert=True)
+
+    msg = query.message
+    await msg.edit(
+        f"⏳ Starting Indexing (<b>{'🐘 Large' if db_type == 'large' else '🐇 Small'} Database</b> mode)…",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton(f"🛑 {to_small_caps('Cancel')}", callback_data='index_cancel')]]
+        )
+    )
+
     try:
-        if reply_markup:
-            await msg.edit_text(text=text, reply_markup=reply_markup)
-        else:
-            await msg.edit(text)
-    except FloodWait as fw:
-        logger.warning(f"[LargeDB] FloodWait {fw.value}s — skipping this progress edit to keep indexing running.")
-    except MessageNotModified:
-        pass  # text didn't change, harmless
-    except Exception as e:
-        logger.warning(f"[LargeDB] Edit skipped: {e}")
+        chat_int = int(chat)
+    except Exception:
+        chat_int = chat
+
+    await index_files_to_db(int(lst_msg_id), chat_int, msg, bot, large_mode=(db_type == "large"))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 1: When admin clicks "Start Indexing" → ask DB size first
-# ─────────────────────────────────────────────────────────────────────────────
 @Client.on_callback_query(filters.regex(r'^index'))
 async def index_files(bot, query):
-    # ── Cancel button ──────────────────────────────────────────────────────
     if query.data.startswith('index_cancel'):
         temp.CANCEL = True
         return await query.answer("Cancelling Indexing")
-
-    # ── DB-size choice already made → proceed to indexing ─────────────────
+    
     if query.data.startswith('index_dbsize#'):
-        # format: index_dbsize#<size>#<lazydeveloperr>#<chat>#<lst_msg_id>#<from_user>
         parts = query.data.split("#")
-        # parts[0] = 'index_dbsize'
-        db_size   = parts[1]            # 'large' or 'small'
-        lazydeveloperr = parts[2]
-        chat      = parts[3]
+        db_type = parts[1]
+        chat = parts[3]
         lst_msg_id = parts[4]
-        from_user  = parts[5]
+        from_user = parts[5]
 
         if lock.locked():
             return await query.answer('Wait until previous process complete.', show_alert=True)
 
         msg = query.message
         await query.answer('Processing...⏳', show_alert=True)
-
-        if int(from_user) not in ADMINS:
-            await bot.send_message(
-                int(from_user),
-                f'Your Submission for indexing {chat} has been accepted by our moderators and will be added soon.',
-                reply_to_message_id=int(lst_msg_id)
-            )
-
-        mode_label = "🗂 Large Database Mode" if db_size == "large" else "📁 Small Database Mode"
-        await safe_edit(
-            msg,
-            f"Starting Indexing\n<b>{mode_label}</b>",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton('Cancel', callback_data='index_cancel')]]
-            )
-        )
-
         try:
-            chat_id = int(chat)
-        except:
-            chat_id = chat
+            chat_int = int(chat)
+        except Exception:
+            chat_int = chat
 
-        is_large = (db_size == "large")
-        await index_files_to_db(int(lst_msg_id), chat_id, msg, bot, large_db=is_large)
+        await index_files_to_db(int(lst_msg_id), chat_int, msg, bot, large_mode=(db_type == "large"))
         return
 
-    # ── Reject button ──────────────────────────────────────────────────────
     _, lazydeveloperr, chat, lst_msg_id, from_user = query.data.split("#")
     if lazydeveloperr == 'reject':
         await query.message.delete()
-        await bot.send_message(
-            int(from_user),
-            f'Your Submission for indexing {chat} has been decliened by our moderators.',
-            reply_to_message_id=int(lst_msg_id)
-        )
+        await bot.send_message(int(from_user),
+                               f'Your Submission for indexing {chat} has been decliened by our moderators.',
+                               reply_to_message_id=int(lst_msg_id))
         return
 
-    # ── Accept button → ask Large or Small before starting ────────────────
     if lock.locked():
         return await query.answer('Wait until previous process complete.', show_alert=True)
-
     msg = query.message
-    await query.answer('Choose database size...', show_alert=False)
 
-    size_buttons = [
-        [
-            InlineKeyboardButton(
-                '🗂 Large Database',
-                callback_data=f'index_dbsize#large#{lazydeveloperr}#{chat}#{lst_msg_id}#{from_user}'
-            ),
-            InlineKeyboardButton(
-                '📁 Small Database',
-                callback_data=f'index_dbsize#small#{lazydeveloperr}#{chat}#{lst_msg_id}#{from_user}'
-            ),
-        ],
-        [InlineKeyboardButton('⨳  C L Ф S Ξ  ⨳', callback_data='close_data')]
+    await query.answer('Processing...⏳', show_alert=True)
+    if int(from_user) not in ADMINS:
+        await bot.send_message(int(from_user),
+                               f'Your Submission for indexing {chat} has been accepted by our moderators and will be added soon.',
+                               reply_to_message_id=int(lst_msg_id))
+
+    buttons = [
+        [InlineKeyboardButton(
+            f"🐇 {to_small_caps('Small Database')} (< 30k files)",
+            callback_data=f"dbsize#small#{chat}#{lst_msg_id}#{from_user}"
+        )],
+        [InlineKeyboardButton(
+            f"🐘 {to_small_caps('Large Database')} (30k+ files)",
+            callback_data=f"dbsize#large#{chat}#{lst_msg_id}#{from_user}"
+        )],
+        [InlineKeyboardButton(f"⨳ {to_small_caps('Cancel')}", callback_data="index_cancel")]
     ]
-    await safe_edit(
-        msg,
-        "⚙️ <b>Select Database Type</b>\n\n"
-        "📁 <b>Small Database</b> — updates progress every <b>60 messages</b>.\n"
-        "Suitable for channels with <b>fewer files</b>.\n\n"
-        "🗂 <b>Large Database</b> — updates progress every <b>500 files saved</b>.\n"
-        "Never blocks on FloodWait — indexing runs smoothly at full speed.\n"
-        "Recommended for large channels with <b>50,000+ files</b> (up to 5 lakh+).",
-        reply_markup=InlineKeyboardMarkup(size_buttons)
+    await msg.edit(
+        "📦 <b>What type of database is this?</b>\n\n"
+        "• <b>Small Database</b> — updates progress every 250 files.\n"
+        "• <b>Large Database</b> — 4-worker parallel partitioning engine (1500+ files/min).",
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Index-link / forwarded-message handler (unchanged logic, kept intact)
-# ─────────────────────────────────────────────────────────────────────────────
-@Client.on_message((filters.forwarded | (filters.regex("(https://)?(t\\.me/|telegram\\.me/|telegram\\.dog/)(c/)?(\\d+|[a-zA-Z_0-9]+)/(\\d+)$")) & filters.text ) & filters.private & filters.incoming)
+@Client.on_message((filters.forwarded | (filters.regex("(https://)?(t\\.me/|telegram\\.me/|telegram\\.dog/)(c/)?(\\d+|[a-zA-Z_0-9]+)/(\\d+)$")) & filters.text) & filters.private & filters.incoming)
 async def send_for_index(bot, message):
     if message.text:
         regex = re.compile("(https://)?(t\\.me/|telegram\\.me/|telegram\\.dog/)(c/)?(\\d+|[a-zA-Z_0-9]+)/(\\d+)$")
@@ -165,7 +119,7 @@ async def send_for_index(bot, message):
         chat_id = match.group(4)
         last_msg_id = int(match.group(5))
         if chat_id.isnumeric():
-            chat_id  = int(("-100" + chat_id))
+            chat_id = int(("-100" + chat_id))
     elif message.forward_from_chat.type == enums.ChatType.CHANNEL:
         last_msg_id = message.forward_from_message_id
         chat_id = message.forward_from_chat.username or message.forward_from_chat.id
@@ -182,96 +136,89 @@ async def send_for_index(bot, message):
         return await message.reply(f'Errors - {e}')
     try:
         k = await bot.get_messages(chat_id, last_msg_id)
-    except:
+    except Exception:
         return await message.reply('Make Sure That i am An Admin In The Channel, if channel is private')
     if k.empty:
         return await message.reply('This may be group and i am not a admin of the group.')
 
     if message.from_user.id in ADMINS:
-        if (LAZY_MODE==True):
+        if LAZY_MODE:
             file = getattr(message, message.media.value)
             filename = file.file_name
-            filesize = humanize.naturalsize(file.file_size) 
+            filesize = humanize.naturalsize(file.file_size)
             buttons = [
-                [ InlineKeyboardButton("📝✧ Start Renaming ✧📝", callback_data="rename") ],
-                [ InlineKeyboardButton('📇✧✧  S𝚝ar𝚝 Indexing  ✧✧📇',callback_data=f'index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}')],
-                [ InlineKeyboardButton('⨳  C L Ф S Ξ  ⨳', callback_data='cancel'),]
+                [InlineKeyboardButton(f"📝 {to_small_caps('Start Renaming')} 📝", callback_data="rename")],
+                [InlineKeyboardButton(f"📇 {to_small_caps('Start Indexing')} 𓍻", callback_data=f'index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}')],
+                [InlineKeyboardButton(f"⨳ {to_small_caps('Close')} ⨳", callback_data='cancel')],
             ]
-            reply_markup = InlineKeyboardMarkup(buttons)
             return await message.reply(
-                f'\n⨳ Rename Mode ⨳\n\n**__What do you want me to do with this file.?__**\n\n🪬Chat ID/ Username: <code>{chat_id}</code>\nℹ️Last Message ID: <code>{last_msg_id}</code> \n\n🎞**File Name** :- `{filename}`\n\n⚙️**File Size** :- `{filesize}`',
+                f'\n⨳ Rename Mode ⨳\n\n**__What do you want me to do with this file.?__**\n\n'
+                f'🪬Chat ID/ Username: <code>{chat_id}</code>\nℹ️Last Message ID: <code>{last_msg_id}</code>\n\n'
+                f'🎞**File Name** :- `{filename}`\n\n⚙️**File Size** :- `{filesize}`',
                 reply_to_message_id=message.id,
-                reply_markup=reply_markup)
+                reply_markup=InlineKeyboardMarkup(buttons))
         else:
             buttons = [
-                [
-                    InlineKeyboardButton('Yes',
-                                         callback_data=f'index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}')
-                ],
-                [
-                    InlineKeyboardButton('⨳  C L Ф S Ξ  ⨳', callback_data='close_data'),
-                ]
+                [InlineKeyboardButton(f"{to_small_caps('Yes')}", callback_data=f'index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}')],
+                [InlineKeyboardButton(f"⨳ {to_small_caps('Close')} ⨳", callback_data='close_data')],
             ]
-            reply_markup = InlineKeyboardMarkup(buttons)
             return await message.reply(
                 f'Do you Want To Index This Channel/ Group ?\n\nChat ID/ Username: <code>{chat_id}</code>\nLast Message ID: <code>{last_msg_id}</code>',
-                reply_markup=reply_markup)
+                reply_markup=InlineKeyboardMarkup(buttons))
 
     if type(chat_id) is int:
         try:
             link = (await bot.create_chat_invite_link(chat_id)).invite_link
-        except ChatAdminRequired: 
+        except ChatAdminRequired:
             return await message.reply('Make sure i am an admin in the chat and have permission to invite users.')
     else:
         link = f"@{message.forward_from_chat.username}"
     buttons = [
-        [
-            InlineKeyboardButton('Request Index',
-                                 callback_data=f'index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}')
-        ],
-        [
-            InlineKeyboardButton('Reject Index',
-                                 callback_data=f'index#reject#{chat_id}#{message.id}#{message.from_user.id}'),
-        ]
+        [InlineKeyboardButton(f"📩 {to_small_caps('Request Index')}", callback_data=f'index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}')],
+        [InlineKeyboardButton(f"❌ {to_small_caps('Reject Index')}", callback_data=f'index#reject#{chat_id}#{message.id}#{message.from_user.id}')],
     ]
-    reply_markup = InlineKeyboardMarkup(buttons)
     await bot.send_message(LOG_CHANNEL,
-                           f'#IndexRequest\n\nBy : {message.from_user.mention} (<code>{message.from_user.id}</code>)\nChat ID/ Username - <code> {chat_id}</code>\nLast Message ID - <code>{last_msg_id}</code>\nInviteLink - {link}',
-                           reply_markup=reply_markup)
-    if (LAZY_MODE == True):
+                           f'#IndexRequest\n\nBy : {message.from_user.mention} (<code>{message.from_user.id}</code>)\n'
+                           f'Chat ID/ Username - <code>{chat_id}</code>\nLast Message ID - <code>{last_msg_id}</code>\nInviteLink - {link}',
+                           reply_markup=InlineKeyboardMarkup(buttons))
+    if LAZY_MODE:
         if message.from_user.id in LAZY_RENAMERS:
             k = await message.reply('🎉\n\n❤️ Thank You For the Contribution, Wait For My Moderators to verify the files.\n\n\n🎁')
             buttons = [
-                        [InlineKeyboardButton("📝✧✧ S𝚝ar𝚝 Renaming ✧✧📝", callback_data="rename") ],
-                        [InlineKeyboardButton('⨳  C L Ф S Ξ  ⨳', callback_data='cancel')]]
-            reply_markup = InlineKeyboardMarkup(buttons)
+                [InlineKeyboardButton("📝✧✧ S𝚝ar𝚝 Renaming ✧✧📝", callback_data="rename")],
+                [InlineKeyboardButton('⨳  C L Ф S Ξ  ⨳', callback_data='cancel')]
+            ]
             file = getattr(message, message.media.value)
             filename = file.file_name
-            filesize = humanize.naturalsize(file.file_size) 
+            filesize = humanize.naturalsize(file.file_size)
             await message.reply(
-                                f".\n⨳ Rename Mode ⨳\n\nSince you are an Authentic user, please don't hesitate to ask me for any other help...\n\n🪬Chat ID/ Username: <code>{chat_id}</code>\nℹ️Last Message ID: <code>{last_msg_id}</code> \n\n🎞**File Name** :- `{filename}`\n\n⚙️**File Size** :- `{filesize}`\n\nYou can simply close this window or perform following actions, it's upon you",
-                                reply_to_message_id=message.id,
-                                reply_markup=reply_markup)
+                f".\n⨳ Rename Mode ⨳\n\nSince you are an Authentic user, please don't hesitate to ask me for any other help...\n\n"
+                f"🪬Chat ID/ Username: <code>{chat_id}</code>\nℹ️Last Message ID: <code>{last_msg_id}</code>\n\n"
+                f"🎞**File Name** :- `{filename}`\n\n⚙️**File Size** :- `{filesize}`\n\nYou can simply close this window or perform following actions, it's upon you",
+                reply_to_message_id=message.id,
+                reply_markup=InlineKeyboardMarkup(buttons))
             await asyncio.sleep(600)
             await k.delete()
-        else :      
+        else:
             await message.reply('🎉\n\n❤️ Thank You For the Contribution, Wait For My Moderators to verify the files.\n\n\n🎁')
             buttons = [
-                        [InlineKeyboardButton("📝✧✧ S𝚝ar𝚝 Renaming ✧✧📝", callback_data="requireauth") ],
-                        [InlineKeyboardButton('⨳  C L Ф S Ξ  ⨳', callback_data='cancel')]]
-            reply_markup = InlineKeyboardMarkup(buttons)
+                [InlineKeyboardButton("📝✧✧ S𝚝ar𝚝 Renaming ✧✧📝", callback_data="requireauth")],
+                [InlineKeyboardButton('⨳  C L Ф S Ξ  ⨳', callback_data='cancel')]
+            ]
             file = getattr(message, message.media.value)
             filename = file.file_name
-            filesize = humanize.naturalsize(file.file_size) 
+            filesize = humanize.naturalsize(file.file_size)
             k = await message.reply(
-                                f"\n⨳ Rename Mode ⨳\n\n🤩 Do you know I can do a lot of things at a time...\nWould you like to try some of it's amazing features... \n\n🪬Chat ID/ Username: <code>{chat_id}</code>\nℹ️Last Message ID: <code>{last_msg_id}</code> \n\n🎞**File Name** :- `{filename}`\n\n⚙️**File Size** :- `{filesize}`",
-                                reply_to_message_id=message.id,
-                                reply_markup=reply_markup)
+                f"\n⨳ Rename Mode ⨳\n\n🤩 Do you know I can do a lot of things at a time...\nWould you like to try some of it's amazing features...\n\n"
+                f"🪬Chat ID/ Username: <code>{chat_id}</code>\nℹ️Last Message ID: <code>{last_msg_id}</code>\n\n"
+                f"🎞**File Name** :- `{filename}`\n\n⚙️**File Size** :- `{filesize}`",
+                reply_to_message_id=message.id,
+                reply_markup=InlineKeyboardMarkup(buttons))
             await asyncio.sleep(600)
             await k.delete()
     else:
         await message.reply('🎉\n\n❤️ Thank You For the Contribution, Wait For My Moderators to verify the files.\n\n\n🎁')
- 
+
 
 @Client.on_message(filters.command('setskip') & filters.user(ADMINS))
 async def set_skip_number(bot, message):
@@ -279,7 +226,7 @@ async def set_skip_number(bot, message):
         _, skip = message.text.split(" ")
         try:
             skip = int(skip)
-        except:
+        except Exception:
             return await message.reply("Skip number should be an integer.")
         await message.reply(f"Successfully set SKIP number as {skip}")
         temp.CURRENT = int(skip)
@@ -287,156 +234,177 @@ async def set_skip_number(bot, message):
         await message.reply("Give me a skip number")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Core indexing function
-#
-#   large_db=False → SMALL DB MODE
-#       • Updates progress every 20 messages (frequent, safe for small channels)
-#       • Waits out FloodWait before retrying (safe_edit — blocking)
-#
-#   large_db=True  → LARGE DB MODE  (the key difference)
-#       • Progress is updated every LARGE_DB_NOTIFY_EVERY files SAVED.
-#         Triggered by actual saved-file count — so the user is notified
-#         after every 500 files land in the database.
-#       • On FloodWait: the edit is SKIPPED entirely (safe_edit_nonblocking).
-#         The indexing loop NEVER pauses — it just skips that one UI update and
-#         keeps running at full speed. This prevents the "message edit flood" error
-#         from accumulating when indexing 3 lakh+ files.
-#       • asyncio.sleep(0) is yielded every LARGE_DB_YIELD_EVERY messages so the
-#         event loop stays responsive (cancel callbacks still work).
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── 4-Worker Parallel Partitioning Indexing Engine ───────────────────────────
 
-# Notify user after every N files SAVED in Large DB mode
-LARGE_DB_NOTIFY_EVERY = 500
-# How often to yield control to the event loop in Large DB mode (every N messages)
-LARGE_DB_YIELD_EVERY = 500
+async def index_files_to_db(lst_msg_id, chat, msg, bot, large_mode: bool = False, large_db: bool = False):
+    """
+    ⚡ 4-Worker Parallel Partitioning Indexing Engine (Target: 1500+ files/min)
+    Splits message ID range into 4 parallel workers streaming simultaneously.
+    """
+    stats = {
+        "total": 0,
+        "dup": 0,
+        "err": 0,
+        "deleted": 0,
+        "no_media": 0,
+        "bad": 0,
+        "processed": 0,
+        "done": False,
+    }
 
+    UPDATE_EVERY_FILES = 250
+    last_ui_update_files = -1  # -1 triggers UI update on FIRST loop immediately
 
-async def index_files_to_db(lst_msg_id, chat, msg, bot, large_db=False):
-    total_files = 0
-    duplicate = 0
-    errors = 0
-    deleted = 0
-    no_media = 0
-    unsupported = 0
-
-    # Small DB: update every 60 messages
-    SMALL_DB_UPDATE_INTERVAL = 60
-
-    # Counter used for the yield-every-N trick in large DB mode
-    msg_counter = 0
-    last_notified_files = 0
+    cancel_btn = InlineKeyboardMarkup([[InlineKeyboardButton('🛑 Cancel', callback_data='index_cancel')]])
+    mode_label = '🐘 Large DB' if (large_mode or large_db) else '🐇 Small DB'
+    
+    batch_media = []
+    batch_lock = asyncio.Lock()
 
     async with lock:
+        start_time = time.time()
         try:
-            current = temp.CURRENT
             temp.CANCEL = False
+            skip_from = max(temp.CURRENT, 1)
+            total_range = max(1, lst_msg_id - skip_from + 1)
+            
+            NUM_WORKERS = 4
+            step = max(1, total_range // NUM_WORKERS)
 
-            async for message in bot.iter_messages(chat, lst_msg_id, temp.CURRENT):
-                if temp.CANCEL:
-                    cancel_text = (
-                        f"Successfully Cancelled!!\n\n"
-                        f"Saved <code>{total_files}</code> files to dataBase!\n"
-                        f"Duplicate Files Skipped: <code>{duplicate}</code>\n"
-                        f"Deleted Messages Skipped: <code>{deleted}</code>\n"
-                        f"Non-Media messages skipped: <code>{no_media + unsupported}</code>"
-                        f"(Unsupported Media - `{unsupported}` )\n"
-                        f"Errors Occurred: <code>{errors}</code>"
-                    )
-                    if large_db:
-                        await safe_edit_nonblocking(msg, cancel_text)
-                    else:
-                        await safe_edit(msg, cancel_text)
-                    break
+            # Generate 4 parallel worker range partitions
+            partitions = []
+            for w in range(NUM_WORKERS):
+                w_start = skip_from + (w * step)
+                w_end = lst_msg_id if (w == NUM_WORKERS - 1) else (w_start + step - 1)
+                if w_start <= lst_msg_id:
+                    partitions.append((w_start, min(w_end, lst_msg_id)))
 
-                current += 1
-                msg_counter += 1
+            logger.info(f"[INDEX] Launching {len(partitions)} Parallel Workers for chat={chat}, skip={skip_from}, last={lst_msg_id}")
 
-                # ── Progress update logic ──────────────────────────────────
-                if large_db:
-                    # LARGE DB: file-count-gated, non-blocking
-                    # Yield to event loop every LARGE_DB_YIELD_EVERY messages so
-                    # cancel callbacks can still be received.
-                    if msg_counter % LARGE_DB_YIELD_EVERY == 0:
-                        await asyncio.sleep(0)
-
-                    # Notify after every LARGE_DB_NOTIFY_EVERY files saved (only once per threshold)
-                    if total_files > 0 and total_files % LARGE_DB_NOTIFY_EVERY == 0 and total_files != last_notified_files:
-                        last_notified_files = total_files
-                        can = [[InlineKeyboardButton('Cancel', callback_data='index_cancel')]]
-                        reply = InlineKeyboardMarkup(can)
+            # ── Background UI Updater Task ────────────────────────────────────
+            async def _ui_task():
+                nonlocal last_ui_update_files
+                while not stats["done"]:
+                    if last_ui_update_files == -1 or (stats["total"] - last_ui_update_files >= UPDATE_EVERY_FILES) or (stats["processed"] % 1000 < 50):
+                        last_ui_update_files = stats["total"]
+                        current_id = skip_from + stats["processed"] - 1
                         progress_text = (
-                            f"🗂 <b>Large DB Mode</b> — indexing in progress...\n\n"
-                            f"📨 Messages scanned: <code>{current}</code>\n"
-                            f"✅ Files saved: <code>{total_files}</code>\n"
-                            f"♻️ Duplicates skipped: <code>{duplicate}</code>\n"
-                            f"🗑 Deleted msgs skipped: <code>{deleted}</code>\n"
-                            f"🚫 Non-media skipped: <code>{no_media + unsupported}</code> "
-                            f"(unsupported: <code>{unsupported}</code>)\n"
-                            f"⚠️ Errors: <code>{errors}</code>\n\n"
-                            f"<i>Notifying every {LARGE_DB_NOTIFY_EVERY} files saved.</i>"
+                            f"{mode_label} Mode (⚡ {len(partitions)}-Worker Parallel Engine)\n\n"
+                            f"📨 Processed: <code>{current_id}</code> / <code>{lst_msg_id}</code>\n"
+                            f"💾 Saved: <code>{stats['total']}</code>\n"
+                            f"🔁 Duplicates: <code>{stats['dup']}</code>\n"
+                            f"🗑 Deleted: <code>{stats['deleted']}</code>\n"
+                            f"📵 Non-media: <code>{stats['no_media'] + stats['bad']}</code>\n"
+                            f"❌ Errors: <code>{stats['err']}</code>"
                         )
-                        await safe_edit_nonblocking(msg, progress_text, reply_markup=reply)
+                        try:
+                            await msg.edit_text(text=progress_text, reply_markup=cancel_btn)
+                        except FloodWait as fw:
+                            await asyncio.sleep(fw.value + 1)
+                        except Exception:
+                            pass
+                    await asyncio.sleep(2)
 
-                else:
-                    # SMALL DB: count-gated, blocking (original behaviour)
-                    if current % SMALL_DB_UPDATE_INTERVAL == 0:
-                        can = [[InlineKeyboardButton('Cancel', callback_data='index_cancel')]]
-                        reply = InlineKeyboardMarkup(can)
-                        progress_text = (
-                            f"Total messages fetched: <code>{current}</code>\n"
-                            f"Total messages saved: <code>{total_files}</code>\n"
-                            f"Duplicate Files Skipped: <code>{duplicate}</code>\n"
-                            f"Deleted Messages Skipped: <code>{deleted}</code>\n"
-                            f"Non-Media messages skipped: <code>{no_media + unsupported}</code>"
-                            f"(Unsupported Media - `{unsupported}` )\n"
-                            f"Errors Occurred: <code>{errors}</code>"
-                        )
-                        await safe_edit(msg, progress_text, reply_markup=reply)
+            ui_task_handle = asyncio.create_task(_ui_task())
 
-                # ── Media processing (unchanged) ───────────────────────────
-                if message.empty:
-                    deleted += 1
-                    continue
-                elif not message.media:
-                    no_media += 1
-                    continue
-                elif message.media not in [enums.MessageMediaType.VIDEO, enums.MessageMediaType.AUDIO, enums.MessageMediaType.DOCUMENT]:
-                # elif message.media != enums.MessageMediaType.VIDEO:   
-                    unsupported += 1
-                    continue
-                media = getattr(message, message.media.value, None)
-                if not media:
-                    unsupported += 1
-                    continue
-                media.file_type = message.media.value
-                media.caption = message.caption
-                aynav, vnay = await save_file(media)
-                if aynav:
-                    total_files += 1
-                elif vnay == 0:
-                    duplicate += 1
-                elif vnay == 2:
-                    errors += 1
+            # ── Worker Routine ────────────────────────────────────────────────
+            async def _worker_partition(p_start, p_end):
+                current = p_start
+                while current <= p_end and not temp.CANCEL:
+                    chunk_end = min(current + 200 - 1, p_end)
+                    id_list = list(range(current, chunk_end + 1))
+
+                    try:
+                        msgs = await bot.get_messages(chat, id_list)
+                    except FloodWait as fw:
+                        await asyncio.sleep(fw.value + 1)
+                        continue
+                    except Exception as exc:
+                        stats["err"] += len(id_list)
+                        current = chunk_end + 1
+                        continue
+
+                    if not msgs:
+                        current = chunk_end + 1
+                        continue
+
+                    msgs_list = msgs if isinstance(msgs, list) else [msgs]
+                    for message in msgs_list:
+                        stats["processed"] += 1
+                        if not message or message.empty:
+                            stats["deleted"] += 1
+                            continue
+                        if not message.media:
+                            stats["no_media"] += 1
+                            continue
+                        if message.media not in (
+                            enums.MessageMediaType.VIDEO,
+                            enums.MessageMediaType.AUDIO,
+                            enums.MessageMediaType.DOCUMENT,
+                        ):
+                            stats["bad"] += 1
+                            continue
+
+                        media = getattr(message, message.media.value, None)
+                        if not media:
+                            stats["bad"] += 1
+                            continue
+
+                        media.file_type = message.media.value
+                        media.caption = message.caption
+
+                        async with batch_lock:
+                            batch_media.append(media)
+                            if len(batch_media) >= 250:
+                                flush_batch = list(batch_media)
+                                batch_media.clear()
+                                s_cnt, d_cnt, e_cnt = await save_files_batch(flush_batch)
+                                stats["total"] += s_cnt
+                                stats["dup"] += d_cnt
+                                stats["err"] += e_cnt
+
+                    current = chunk_end + 1
+                    await asyncio.sleep(0.005)
+
+            # Gather all 4 parallel partition workers
+            await asyncio.gather(*[_worker_partition(p[0], p[1]) for p in partitions])
+
+            stats["done"] = True
+            ui_task_handle.cancel()
+
+            # Flush any remaining media items
+            if batch_media:
+                s_cnt, d_cnt, e_cnt = await save_files_batch(batch_media)
+                stats["total"] += s_cnt
+                stats["dup"] += d_cnt
+                stats["err"] += e_cnt
+                batch_media.clear()
 
         except Exception as e:
             logger.exception(e)
-            if large_db:
-                await safe_edit_nonblocking(msg, f'Error baby: {e}')
-            else:
-                await safe_edit(msg, f'Error baby: {e}')
-        else:
-            done_text = (
-                f"✅ <b>Indexing Complete!</b>\n\n"
-                f"{'🗂 Large DB Mode\n\n' if large_db else ''}"
-                f"Files saved: <code>{total_files}</code>\n"
-                f"Duplicate Files Skipped: <code>{duplicate}</code>\n"
-                f"Deleted Messages Skipped: <code>{deleted}</code>\n"
-                f"Non-Media messages skipped: <code>{no_media + unsupported}</code>"
-                f"(Unsupported Media - `{unsupported}` )\n"
-                f"Errors Occurred: <code>{errors}</code>"
-            )
-            if large_db:
-                await safe_edit_nonblocking(msg, done_text)
-            else:
-                await safe_edit(msg, done_text)
+            stats["done"] = True
+            elapsed_sec = int(time.time() - start_time)
+            d, rem = divmod(elapsed_sec, 86400)
+            h, rem = divmod(rem, 3600)
+            m, s = divmod(rem, 60)
+            time_taken_str = to_small_caps(f"Completed in : {d} : {h} : {m} : {s}")
+            await msg.edit(f'❌ Error: <code>{e}</code>\n\n⏱️ <b>{time_taken_str}</b>')
+            return
+
+        elapsed_sec = int(time.time() - start_time)
+        d, rem = divmod(elapsed_sec, 86400)
+        h, rem = divmod(rem, 3600)
+        m, s = divmod(rem, 60)
+        time_taken_str = to_small_caps(f"Completed in : {d} : {h} : {m} : {s}")
+
+        _status = "Cancelled! ✋" if temp.CANCEL else "Indexing Complete! ✅"
+        await msg.edit(
+            f"{'✋' if temp.CANCEL else '✅'} <b>{_status}</b>\n\n"
+            f"⏱️ <b>{time_taken_str}</b>\n\n"
+            f"💾 Saved <code>{stats['total']}</code> files to database!\n"
+            f"🔁 Duplicates skipped: <code>{stats['dup']}</code>\n"
+            f"🗑 Deleted skipped: <code>{stats['deleted']}</code>\n"
+            f"📵 Non-media skipped: <code>{stats['no_media'] + stats['bad']}</code>\n"
+            f"📦 Total scanned: <code>{stats['processed']}</code> messages\n"
+            f"❌ Errors: <code>{stats['err']}</code>"
+        )

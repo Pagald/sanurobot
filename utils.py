@@ -389,7 +389,21 @@ async def get_poster2(query, bulk=False, id=False, file=None):
     }
 
 # 🚩 currently using this logic
+_IMDB_CACHE = {}
 async def get_poster(query, bulk=False, id=False, file=None):
+    cache_key = f"imdb_poster:{str(query).strip().lower()}:{id}:{bulk}"
+    if cache_key in _IMDB_CACHE:
+        return _IMDB_CACHE[cache_key]
+
+    try:
+        from database.redis_db import redis_db
+        cached = await redis_db.get_json_cache(cache_key)
+        if cached:
+            _IMDB_CACHE[cache_key] = cached
+            return cached
+    except Exception:
+        pass
+
     if not id:
         query = (query.strip()).lower()
         title = query
@@ -403,7 +417,10 @@ async def get_poster(query, bulk=False, id=False, file=None):
                 year = list_to_str(year[:1]) 
         else:
             year = None
-        movieid = imdb.search_movie(title.lower(), results=10)
+        try:
+            movieid = await asyncio.to_thread(imdb.search_movie, title.lower(), results=10)
+        except Exception:
+            movieid = None
         if not movieid:
             return None
         if year:
@@ -420,7 +437,15 @@ async def get_poster(query, bulk=False, id=False, file=None):
         movieid = movieid[0].movieID
     else:
         movieid = query
-    movie = imdb.get_movie(movieid)
+
+    try:
+        movie = await asyncio.to_thread(imdb.get_movie, movieid)
+    except Exception:
+        return None
+
+    if not movie:
+        return None
+
     if movie.get("original air date"):
         date = movie["original air date"]
     elif movie.get("year"):
@@ -437,7 +462,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
     if plot and len(plot) > 800:
         plot = plot[0:800] + "..."
     
-    return {
+    res = {
         'title': movie.get('title'),
         'votes': movie.get('votes'),
         "aka": list_to_str(movie.get("akas")),
@@ -452,20 +477,32 @@ async def get_poster(query, bulk=False, id=False, file=None):
         "certificates": list_to_str(movie.get("certificates")),
         "languages": list_to_str(movie.get("languages")),
         "director": list_to_str(movie.get("director")),
-        "writer":list_to_str(movie.get("writer")),
-        "producer":list_to_str(movie.get("producer")),
-        "composer":list_to_str(movie.get("composer")) ,
-        "cinematographer":list_to_str(movie.get("cinematographer")),
+        "writer": list_to_str(movie.get("writer")),
+        "producer": list_to_str(movie.get("producer")),
+        "composer": list_to_str(movie.get("composer")),
+        "cinematographer": list_to_str(movie.get("cinematographer")),
         "music_team": list_to_str(movie.get("music department")),
         "distributors": list_to_str(movie.get("distributors")),
-        'release_date': date,
-        'year': movie.get('year'),
-        'genres': list_to_str(movie.get("genres")),
-        'poster': movie.get('full-size cover url', PICS),
-        'plot': plot,
-        'rating': str(movie.get("rating")),
-        'url':f'https://www.imdb.com/title/tt{movieid}'
+        "release_date": date,
+        "year": movie.get('year'),
+        "genres": list_to_str(movie.get("genres")),
+        "poster": movie.get('full-size cover url'),
+        "plot": plot,
+        "rating": str(movie.get("rating")),
+        "url": f'https://www.imdb.com/title/tt{movieid}'
     }
+
+    _IMDB_CACHE[cache_key] = res
+    if len(_IMDB_CACHE) > 500:
+        _IMDB_CACHE.clear()
+
+    try:
+        from database.redis_db import redis_db
+        await redis_db.set_json_cache(cache_key, res, ttl=3600)
+    except Exception:
+        pass
+
+    return res
 
 # ONLY TITLE POSTER 
 async def get_poster3(query, bulk=False, id=False):
@@ -649,9 +686,25 @@ async def save_group_settings(group_id, key, value):
     await db.update_settings(group_id, current)
 
 def get_size(file_size):
-    """converting file to GB // as per client reuirement 🚀"""
-    gb_size = file_size / (1024 ** 3)  # Convert bytes to GB
-    return "%.2fᴳᴮ" % gb_size  # Format the output with superscript GB
+    """Format file size in normal human readable format (e.g. 700 MB, 1.5 GB)."""
+    try:
+        size = float(file_size)
+    except Exception:
+        return "0 MB"
+
+    if size < 1024:
+        return f"{int(size)} B"
+    elif size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    elif size < 1024 * 1024 * 1024:
+        mb = size / (1024 * 1024)
+        return f"{int(mb)} MB" if mb.is_integer() else f"{mb:.1f} MB"
+    elif size < 1024 * 1024 * 1024 * 1024:
+        gb = size / (1024 * 1024 * 1024)
+        return f"{int(gb)} GB" if gb.is_integer() else f"{gb:.2f} GB"
+    else:
+        tb = size / (1024 * 1024 * 1024 * 1024)
+        return f"{tb:.2f} TB"
 
 def get_size_mb_gb(size):
     """Get size in readable format"""

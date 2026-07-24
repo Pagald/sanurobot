@@ -36,6 +36,14 @@ from lazybot import LazyPrincessBot
 from lazybot.clients import initialize_clients
 from util.keepalive import ping_server
 
+if os.name != 'nt':
+    try:
+        import uvloop
+        uvloop.install()
+        logging.info("⚡ High-Performance uvloop Event Loop Installed!")
+    except Exception as e:
+        logging.info(f"uvloop status: {e}")
+
 PORT = "8080"
 LazyPrincessBot.start()
 loop = asyncio.get_event_loop()

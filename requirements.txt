@@ -41,3 +41,6 @@ Flask==2.2.2
 
 imageio>=2.5.0 
 Pillow>=7.0.0 
+redis>=4.5.0
+orjson>=3.8.0
+uvloop; sys_platform != "win32"
