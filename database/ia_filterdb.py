@@ -3,6 +3,8 @@ from struct import pack
 import re
 import time
 import base64
+import asyncio
+from typing import List, Dict, Any, Optional
 from pyrogram.file_id import FileId
 from pymongo.errors import DuplicateKeyError, BulkWriteError
 from umongo import Instance, Document, fields
@@ -10,6 +12,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from marshmallow.exceptions import ValidationError
 from info import DATABASE_URI, DATABASE_NAME, COLLECTION_NAME, USE_CAPTION_FILTER, MAX_LAZY_BTNS
 from utils import get_settings, save_group_settings, temp
+from database.multi_mongo import multi_db
+from database.vps_cache import vps_cache
 
 try:
     from fuzzywuzzy import fuzz
@@ -19,10 +23,8 @@ except ImportError:
     except ImportError:
         fuzz = None
 
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
 
 client = AsyncIOMotorClient(DATABASE_URI)
 db = client[DATABASE_NAME]
@@ -43,40 +45,65 @@ class Media(Document):
         collection_name = COLLECTION_NAME
 
 
+class MediaItem:
+    """
+    Unified lightweight proxy wrapper compatible with Pyrogram templates and umongo Media
+    Provides access to .file_id, .id, .file_name, .file_size, .file_type, .mime_type, .caption
+    """
+    def __init__(self, doc: Dict[str, Any]):
+        self.id = str(doc.get('_id', ''))
+        self.file_id = str(doc.get('_id', ''))
+        self.file_ref = doc.get('file_ref')
+        self.file_name = doc.get('file_name', '')
+        self.file_size = doc.get('file_size', 0)
+        self.file_type = doc.get('file_type')
+        self.mime_type = doc.get('mime_type')
+        self.caption = doc.get('caption')
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            '_id': self.file_id,
+            'file_ref': self.file_ref,
+            'file_name': self.file_name,
+            'file_size': self.file_size,
+            'file_type': self.file_type,
+            'mime_type': self.mime_type,
+            'caption': self.caption
+        }
+
+
 async def save_file(media):
-    """Save single file in database"""
+    """Save single file in the active writable database."""
     file_id, file_ref = unpack_new_file_id(media.file_id)
     file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
+    doc = {
+        '_id': file_id,
+        'file_ref': file_ref,
+        'file_name': file_name,
+        'file_size': media.file_size,
+        'file_type': media.file_type,
+        'mime_type': media.mime_type,
+        'caption': media.caption.html if media.caption else None,
+    }
+
+    writable_col, db_info = await multi_db.get_writable_collection()
     try:
-        file = Media(
-            file_id=file_id,
-            file_ref=file_ref,
-            file_name=file_name,
-            file_size=media.file_size,
-            file_type=media.file_type,
-            mime_type=media.mime_type,
-            caption=media.caption.html if media.caption else None,
-        )
-    except ValidationError:
-        logger.exception('Error occurred while saving file in database')
+        await writable_col.insert_one(doc)
+        logger.info(f"{getattr(media, 'file_name', 'NO_FILE')} is saved to {db_info.get('db_alias', 'DB')}")
+        return True, 1
+    except DuplicateKeyError:
+        logger.warning(f"{getattr(media, 'file_name', 'NO_FILE')} is already saved")
+        return False, 0
+    except Exception as e:
+        logger.error(f"Error saving file: {e}")
         return False, 2
-    else:
-        try:
-            await file.commit()
-        except DuplicateKeyError:      
-            logger.warning(
-                f'{getattr(media, "file_name", "NO_FILE")} is already saved in database'
-            )
-            return False, 0
-        else:
-            logger.info(f'{getattr(media, "file_name", "NO_FILE")} is saved to database')
-            return True, 1
 
 
 async def save_files_batch(media_list):
     """
-    ⚡ Indexing Booster: Bulk save a batch of media files to MongoDB in a single network round-trip.
-    Increases indexing speed by 50x - 100x!
+    ⚡ Indexing Booster with Multi-MongoDB Auto-Routing:
+    Bulk save a batch of media files into the currently active writable database.
+    If the database reaches >= 90% capacity, it automatically switches writes to the next available cluster!
     """
     if not media_list:
         return 0, 0, 0
@@ -106,8 +133,10 @@ async def save_files_batch(media_list):
     if not documents:
         return saved_count, duplicate_count, error_count
 
+    writable_col, db_info = await multi_db.get_writable_collection()
+
     try:
-        result = await Media.collection.insert_many(documents, ordered=False)
+        result = await writable_col.insert_many(documents, ordered=False)
         saved_count = len(result.inserted_ids)
     except BulkWriteError as bwe:
         details = bwe.details
@@ -119,7 +148,7 @@ async def save_files_batch(media_list):
             else:
                 error_count += 1
     except Exception as exc:
-        logger.error(f"Bulk insert error: {exc}")
+        logger.error(f"Bulk insert error in {db_info.get('db_alias', 'cluster')}: {exc}")
         error_count += len(documents)
 
     return saved_count, duplicate_count, error_count
@@ -131,10 +160,12 @@ _LOCAL_SEARCH_CACHE = {}
 
 async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file_type=None, max_results=10, offset=0, filter=False):
     """
-    ⚡ Bot Speed Booster:
-    1. Local & Redis RAM Caching (sub-millisecond response)
-    2. Vectorized Regex Search (no slow full-table count_documents scans)
-    3. Fuzzy Relevance Scoring & Precision Sorting (illiterate/misspelled query auto-match)
+    ⚡ Multi-MongoDB Parallel Search Engine with VPS Disk Cache:
+    1. Local RAM Cache (sub-millisecond)
+    2. VPS High-Capacity SQLite Disk Cache (< 1ms, zero network overhead)
+    3. Redis RAM Cache Check
+    4. Parallel Query across ALL connected MongoDB clusters (asyncio.gather)
+    5. Deduplication & Enterprise Fuzzy Relevance Scoring
     """
     max_results = int(MAX_LAZY_BTNS) if MAX_LAZY_BTNS else 10
     query = query.strip()
@@ -142,7 +173,7 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
     cache_key = f"{query.lower()}:{file_type}:{offset}:{max_results}"
     now = time.time()
 
-    # ⚡ 1. Ultra-Fast Local RAM Cache Check (0.0001s response)
+    # ⚡ 1. Local In-Memory RAM Cache Check
     if cache_key in _LOCAL_SEARCH_CACHE:
         cached_entry = _LOCAL_SEARCH_CACHE[cache_key]
         if now - cached_entry['time'] < 300:  # 5 min TTL
@@ -153,7 +184,22 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
                 pass
             return files, n_offset, total_res
 
-    # ⚡ 2. Check Redis RAM Cache for 10M User Concurrency
+    # ⚡ 2. VPS High-Capacity SQLite Disk Cache Check (Sub-millisecond)
+    try:
+        cached_vps = await vps_cache.get(cache_key)
+        if cached_vps:
+            files_raw, n_offset, total_res = cached_vps
+            files = [MediaItem(f) for f in files_raw]
+            try:
+                temp.LAZY_LOCAL_FILES[f"{chat_id}-{lazy_id}"] = files
+            except Exception:
+                pass
+            _LOCAL_SEARCH_CACHE[cache_key] = {'data': (files, n_offset, total_res), 'time': now}
+            return files, n_offset, total_res
+    except Exception as e:
+        logger.debug(f"[Search Engine] VPS cache read notice: {e}")
+
+    # ⚡ 3. Check Redis RAM Cache
     try:
         from database.redis_db import redis_db
         cached = await redis_db.get_json_cache(f"search_res:{cache_key}")
@@ -175,6 +221,7 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
     except Exception:
         pass
 
+    # Build Regex Query Pattern
     if not query:
         raw_pattern = '.'
     elif ' ' not in query:
@@ -196,42 +243,55 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
     if file_type:
         db_filter['file_type'] = file_type
 
-    # ⚡ 3. Fast Fetch Candidates from MongoDB (no slow count_documents full collection scan!)
-    cursor = Media.find(db_filter).skip(offset).limit(max_results * 4)
-    candidate_files = await cursor.to_list(length=max_results * 4)
+    # ⚡ 4. Fast Parallel Query Across ALL Connected MongoDB Clusters
+    search_targets = multi_db.get_all_search_collections()
+    if not search_targets:
+        search_targets = [(Media.collection, {"db_alias": "Master DB"})]
 
-    # 🚀 4. AUTOMATIC FUZZY DB FALLBACK FOR MISSPELLED / ILLITERATE QUERIES (e.g. RRRR -> RRR, Pushpaa -> Pushpa)
-    if not candidate_files:
+    async def _query_single_cluster(col, db_info):
         try:
-            words = [w for w in query.split() if w]
-            clean_query = re.sub(r'(.)\1{2,}', r'\1', query, flags=re.IGNORECASE)
-            fuzzy_patterns = [r'(\b|[\.\+\-_])' + re.escape(clean_query) + r'(\b|[\.\+\-_])']
+            cursor = col.find(db_filter).skip(offset).limit(max_results * 4)
+            found = await cursor.to_list(length=max_results * 4)
 
-            if words:
-                prefix_parts = [re.escape(w[:max(3, len(w)-2)]) for w in words if len(w) >= 3]
-                if prefix_parts:
-                    fuzzy_patterns.append(r'.*'.join(prefix_parts))
+            # Auto-fuzzy fallback if nothing matched
+            if not found:
+                words = [w for w in query.split() if w]
+                clean_query = re.sub(r'(.)\1{2,}', r'\1', query, flags=re.IGNORECASE)
+                fuzzy_patterns = [r'(\b|[\.\+\-_])' + re.escape(clean_query) + r'(\b|[\.\+\-_])']
+                if words:
+                    prefix_parts = [re.escape(w[:max(3, len(w)-2)]) for w in words if len(w) >= 3]
+                    if prefix_parts:
+                        fuzzy_patterns.append(r'.*'.join(prefix_parts))
+                combined_pattern = '|'.join(fuzzy_patterns)
+                fuzzy_regex = re.compile(combined_pattern, flags=re.IGNORECASE)
+                fuzzy_filter = {'$or': [{'file_name': fuzzy_regex}, {'caption': fuzzy_regex}]} if USE_CAPTION_FILTER else {'file_name': fuzzy_regex}
+                if file_type:
+                    fuzzy_filter['file_type'] = file_type
+                f_cursor = col.find(fuzzy_filter).limit(max_results * 4)
+                found = await f_cursor.to_list(length=max_results * 4)
 
-            combined_pattern = '|'.join(fuzzy_patterns)
-            fuzzy_regex = re.compile(combined_pattern, flags=re.IGNORECASE)
-            fuzzy_filter = {'$or': [{'file_name': fuzzy_regex}, {'caption': fuzzy_regex}]} if USE_CAPTION_FILTER else {'file_name': fuzzy_regex}
-            if file_type:
-                fuzzy_filter['file_type'] = file_type
+            return [MediaItem(d) for d in found]
+        except Exception as e:
+            logger.error(f"[Parallel Search] Error on cluster {db_info.get('db_alias', 'cluster')}: {e}")
+            return []
 
-            cursor = Media.find(fuzzy_filter).limit(max_results * 4)
-            candidate_files = await cursor.to_list(length=max_results * 4)
-        except Exception:
-            pass
+    # Run all queries concurrently
+    tasks = [_query_single_cluster(col, info_dict) for col, info_dict in search_targets]
+    results_nested = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Calculate accurate total results & pagination next_offset
-    try:
-        total_results = await Media.count_documents(db_filter)
-    except Exception:
-        total_results = offset + len(candidate_files)
+    # Flatten and deduplicate candidates by _id
+    seen_ids = set()
+    candidate_files = []
+    for res in results_nested:
+        if isinstance(res, list):
+            for file_item in res:
+                if file_item.id not in seen_ids:
+                    seen_ids.add(file_item.id)
+                    candidate_files.append(file_item)
 
-    next_offset = offset + max_results
-    if next_offset >= total_results:
-        next_offset = ''
+    # Approximate total count
+    total_results = offset + len(candidate_files)
+    next_offset = offset + max_results if len(candidate_files) > max_results else ''
 
     # 🚀 5. Enterprise Relevance Scoring & Precision Sorting
     def calculate_relevance(file_obj):
@@ -262,13 +322,20 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
     except Exception:
         pass
 
-    # Save to local RAM cache & Redis RAM cache
+    # Save to Local RAM Cache
     _LOCAL_SEARCH_CACHE[cache_key] = {'data': (files, next_offset, total_results), 'time': now}
-
     if len(_LOCAL_SEARCH_CACHE) > 1000:
         oldest = min(_LOCAL_SEARCH_CACHE.keys(), key=lambda k: _LOCAL_SEARCH_CACHE[k]['time'])
         _LOCAL_SEARCH_CACHE.pop(oldest, None)
 
+    # ⚡ 6. Save into VPS High-Capacity SQLite Disk Cache for persistent sub-millisecond retrieval
+    try:
+        files_dict_list = [f.to_dict() for f in files]
+        await vps_cache.set(cache_key, files_dict_list, next_offset, total_results, ttl=3600)
+    except Exception as e:
+        logger.debug(f"[Search Engine] VPS cache write notice: {e}")
+
+    # Save to Redis RAM Cache if available
     try:
         from database.redis_db import redis_db
         cached_payload = {
@@ -284,43 +351,34 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
 
 
 async def get_search_results(query, file_type=None, max_results=10, offset=0, filter=False):
-    """For given query return (results, next_offset)"""
-    query = query.strip()
-    if not query:
-        raw_pattern = '.'
-    elif ' ' not in query:
-        raw_pattern = r'(\b|[\.\+\-_])' + re.escape(query) + r'(\b|[\.\+\-_])'
-    else:
-        words = query.split()
-        raw_pattern = r'.*'.join([re.escape(w) for w in words])
-
-    try:
-        regex = re.compile(raw_pattern, flags=re.IGNORECASE)
-    except Exception:
-        return [], '', 0
-
-    if USE_CAPTION_FILTER:
-        filter_dict = {'$or': [{'file_name': regex}, {'caption': regex}]}
-    else:
-        filter_dict = {'file_name': regex}
-
-    if file_type:
-        filter_dict['file_type'] = file_type
-
-    cursor = Media.find(filter_dict).skip(offset).limit(max_results)
-    files = await cursor.to_list(length=max_results)
-    cand_len = len(files)
-    total_results = offset + cand_len
-    next_offset = offset + max_results if cand_len >= max_results else ''
-
-    return files, next_offset, total_results
+    """Fallback search"""
+    return await get_search_results_badAss_LazyDeveloperr(0, 0, query, file_type, max_results, offset, filter)
 
 
 async def get_file_details(query):
-    filter_dict = {'file_id': query}
-    cursor = Media.find(filter_dict)
-    filedetails = await cursor.to_list(length=1)
-    return filedetails
+    """
+    Search across all connected MongoDB clusters for file details.
+    """
+    # 1. Search in multi_mongo clusters
+    search_targets = multi_db.get_all_search_collections()
+    for col, db_info in search_targets:
+        try:
+            doc = await col.find_one({"$or": [{"_id": query}, {"file_id": query}]})
+            if doc:
+                return [MediaItem(doc)]
+        except Exception:
+            continue
+
+    # 2. Fallback to default Media collection
+    try:
+        cursor = Media.find({'file_id': query})
+        filedetails = await cursor.to_list(length=1)
+        if filedetails:
+            return filedetails
+    except Exception:
+        pass
+
+    return []
 
 
 def encode_file_id(s: bytes) -> str:

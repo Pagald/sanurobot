@@ -25,6 +25,8 @@ from pyrogram import Client, __version__
 from pyrogram.raw.all import layer
 from database.ia_filterdb import Media
 from database.users_chats_db import db
+from database.multi_mongo import multi_db
+from database.vps_cache import vps_cache
 from info import *
 from utils import temp, get_popular_movies, get_lazy_goat_movies, get_lazy_trending_movies
 from aiohttp import web
@@ -67,6 +69,14 @@ async def Lazy_start():
     temp.BANNED_CHATS = b_chats
     temp.LAZY_VERIFIED_CHATS = lz_verified
     await Media.ensure_indexes()
+    
+    # ⚡ Initialize Dynamic Multi-MongoDB Cluster Manager & VPS Cache
+    try:
+        await multi_db.initialize()
+        logging.info("🗄 Multi-MongoDB Clusters & VPS Cache Ready!")
+    except Exception as e:
+        logging.error(f"Multi-MongoDB init error: {e}")
+
     me = await LazyPrincessBot.get_me()
     temp.ME = me.id
     temp.U_NAME = me.username
