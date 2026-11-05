@@ -48,9 +48,10 @@ class Media(Document):
 class MediaItem:
     """
     Unified lightweight proxy wrapper compatible with Pyrogram templates and umongo Media
-    Provides access to .file_id, .id, .file_name, .file_size, .file_type, .mime_type, .caption
+    Provides access to ._id, .file_id, .id, .file_name, .file_size, .file_type, .mime_type, .caption
     """
     def __init__(self, doc: Dict[str, Any]):
+        self._id = str(doc.get('_id', ''))
         self.id = str(doc.get('_id', ''))
         self.file_id = str(doc.get('_id', ''))
         self.file_ref = doc.get('file_ref')
@@ -160,12 +161,13 @@ _LOCAL_SEARCH_CACHE = {}
 
 async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file_type=None, max_results=10, offset=0, filter=False):
     """
-    ⚡ Multi-MongoDB Parallel Search Engine with VPS Disk Cache:
+    ⚡ Multi-MongoDB Parallel Search Engine with Accurate Pagination & VPS Disk Cache:
     1. Local RAM Cache (sub-millisecond)
     2. VPS High-Capacity SQLite Disk Cache (< 1ms, zero network overhead)
     3. Redis RAM Cache Check
     4. Parallel Query across ALL connected MongoDB clusters (asyncio.gather)
     5. Deduplication & Enterprise Fuzzy Relevance Scoring
+    6. Accurate Total Count across all clusters for perfect 1/N page calculation
     """
     max_results = int(MAX_LAZY_BTNS) if MAX_LAZY_BTNS else 10
     query = query.strip()
@@ -248,7 +250,11 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
     if not search_targets:
         search_targets = [(Media.collection, {"db_alias": "Master DB"})]
 
+    fuzzy_used = False
+    fuzzy_filter = None
+
     async def _query_single_cluster(col, db_info):
+        nonlocal fuzzy_used, fuzzy_filter
         try:
             cursor = col.find(db_filter).skip(offset).limit(max_results * 4)
             found = await cursor.to_list(length=max_results * 4)
@@ -267,6 +273,7 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
                 fuzzy_filter = {'$or': [{'file_name': fuzzy_regex}, {'caption': fuzzy_regex}]} if USE_CAPTION_FILTER else {'file_name': fuzzy_regex}
                 if file_type:
                     fuzzy_filter['file_type'] = file_type
+                fuzzy_used = True
                 f_cursor = col.find(fuzzy_filter).limit(max_results * 4)
                 found = await f_cursor.to_list(length=max_results * 4)
 
@@ -289,11 +296,27 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
                     seen_ids.add(file_item.id)
                     candidate_files.append(file_item)
 
-    # Approximate total count
-    total_results = offset + len(candidate_files)
-    next_offset = offset + max_results if len(candidate_files) > max_results else ''
+    if not candidate_files:
+        return [], '', 0
 
-    # 🚀 5. Enterprise Relevance Scoring & Precision Sorting
+    # 🚀 5. Accurate Total Count across all clusters for perfect pagination
+    active_count_filter = fuzzy_filter if (fuzzy_used and fuzzy_filter) else db_filter
+    try:
+        count_tasks = [col.count_documents(active_count_filter) for col, _ in search_targets]
+        counts = await asyncio.gather(*count_tasks, return_exceptions=True)
+        total_results = sum(c for c in counts if isinstance(c, int))
+        if total_results == 0:
+            total_results = offset + len(candidate_files)
+    except Exception as e:
+        logger.error(f"Error calculating total count: {e}")
+        total_results = offset + len(candidate_files)
+
+    # Next offset for pagination
+    next_offset = offset + max_results
+    if next_offset >= total_results:
+        next_offset = ''
+
+    # 🚀 6. Enterprise Relevance Scoring & Precision Sorting
     def calculate_relevance(file_obj):
         fname = getattr(file_obj, 'file_name', '') or ''
         q_l = query.lower()
@@ -311,9 +334,7 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
             score += 10
         return score
 
-    if candidate_files:
-        candidate_files.sort(key=calculate_relevance, reverse=True)
-
+    candidate_files.sort(key=calculate_relevance, reverse=True)
     files = candidate_files[:max_results]
 
     try:
@@ -328,7 +349,7 @@ async def get_search_results_badAss_LazyDeveloperr(chat_id, lazy_id, query, file
         oldest = min(_LOCAL_SEARCH_CACHE.keys(), key=lambda k: _LOCAL_SEARCH_CACHE[k]['time'])
         _LOCAL_SEARCH_CACHE.pop(oldest, None)
 
-    # ⚡ 6. Save into VPS High-Capacity SQLite Disk Cache for persistent sub-millisecond retrieval
+    # ⚡ 7. Save into VPS High-Capacity SQLite Disk Cache for persistent sub-millisecond retrieval
     try:
         files_dict_list = [f.to_dict() for f in files]
         await vps_cache.set(cache_key, files_dict_list, next_offset, total_results, ttl=3600)
