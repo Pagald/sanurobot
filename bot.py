@@ -41,7 +41,7 @@ from util.keepalive import ping_server
 # Standard asyncio event loop for Pyrogram update listener compatibility
 logging.info("⚡ Standard Asyncio Event Loop Active!")
 
-PORT = "8080"
+PORT = os.environ.get("PORT", "8081")
 LazyPrincessBot.start()
 loop = asyncio.get_event_loop()
 
