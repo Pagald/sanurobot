@@ -50,8 +50,7 @@ async def render_mongo_panel():
     txt += f"💾 <b><u>VPS Disk Cache Status</u>:</b>\n"
     txt += f"   • <b>Cached Queries:</b> <code>{cached_q:,}</code>\n"
     txt += f"   • <b>VPS Disk Used:</b> <code>{cached_mb} MB</code>\n"
-    txt += f"   • <b>Total Hits:</b> <code>{cached_hits:,}</code> (Zero Atlas Bandwidth!)\n\n"
-    txt += "<i>🛡 Auto-Protection: Jab bhi koi DB >= 90% full hoga, bot naye files usme save nahi karega aur next free DB par switch ho jayega!</i>"
+    txt += f"   • <b>Total Hits:</b> <code>{cached_hits:,}</code> (Zero Atlas Bandwidth!)\n"
 
     buttons = [
         [

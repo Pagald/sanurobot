@@ -16,8 +16,8 @@ class MultiMongoManager:
     """
     ⚡ Dynamic Multi-MongoDB Cluster Manager
     - Supports N multiple MongoDB databases dynamically.
-    - Automatically checks capacity via dbstats.
-    - If any database hits >= 90% full, automatically marks it as READ-ONLY and switches
+    - Automatically checks cluster-wide storage capacity via dbstats.
+    - If any database cluster hits >= 90% full, automatically marks it as READ-ONLY and switches
       all new indexing/writes to the next available database with the most free space.
     - Enables high-speed parallel search across ALL connected databases simultaneously.
     - Fully controllable by Bot Admins via Telegram UI (/mongo).
@@ -47,7 +47,6 @@ class MultiMongoManager:
                 # Ensure Master DB itself is registered as DB-1 (Primary)
                 primary_doc = await self._registry_col.find_one({"is_primary": True})
                 if not primary_doc:
-                    # Check if any db with same URI exists
                     existing = await self._registry_col.find_one({"db_uri": info.DATABASE_URI})
                     if not existing:
                         initial_db_doc = {
@@ -114,6 +113,36 @@ class MultiMongoManager:
             self._db_info[db_id]["error_msg"] = str(e)
             return False
 
+    async def _compute_cluster_storage(self, client: AsyncIOMotorClient, default_db_name: str) -> Tuple[float, float]:
+        """
+        Calculates cluster-wide total storage across all non-system databases in this MongoDB cluster.
+        Returns: (size_mb, storage_bytes)
+        """
+        total_storage_bytes = 0
+        total_data_bytes = 0
+        try:
+            dbs_in_cluster = await client.list_database_names()
+            for d_name in dbs_in_cluster:
+                if d_name in ["local", "admin"]:
+                    continue
+                try:
+                    s = await client[d_name].command("dbstats")
+                    total_storage_bytes += s.get("storageSize", 0)
+                    total_data_bytes += s.get("dataSize", 0)
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                stats = await client[default_db_name].command("dbstats")
+                total_storage_bytes = stats.get("storageSize", 0)
+                total_data_bytes = stats.get("dataSize", 0)
+            except Exception:
+                pass
+
+        used_bytes = max(total_storage_bytes, total_data_bytes)
+        size_mb = round(used_bytes / (1024 * 1024), 2)
+        return size_mb, used_bytes
+
     async def update_all_stats(self) -> List[Dict[str, Any]]:
         """Calculates dbstats for all clusters and updates read-only status if >= 90% full."""
         summaries = []
@@ -126,20 +155,15 @@ class MultiMongoManager:
             try:
                 target_db = client[db_name]
                 target_col = target_db[col_name]
-                stats = await target_db.command("dbstats")
 
-                # storageSize is on-disk allocated storage, dataSize is actual data
-                storage_bytes = stats.get("storageSize", 0)
-                data_bytes = stats.get("dataSize", 0)
-                used_bytes = max(storage_bytes, data_bytes)
-
-                size_mb = round(used_bytes / (1024 * 1024), 2)
+                # ⚡ Accurate Cluster-wide Storage Calculation (matches Atlas Dashboard)
+                size_mb, _ = await self._compute_cluster_storage(client, db_name)
                 usage_percent = round((size_mb / max_size_mb) * 100, 1) if max_size_mb > 0 else 0.0
 
                 try:
                     file_count = await target_col.estimated_document_count()
                 except Exception:
-                    file_count = stats.get("objects", 0)
+                    file_count = 0
 
                 # Check 90% auto-seal rule
                 is_full = usage_percent >= CAPACITY_THRESHOLD_PERCENT
@@ -159,8 +183,8 @@ class MultiMongoManager:
 
                 # Update in-memory dict
                 self._db_info[db_id].update(update_fields)
-
                 summaries.append(self._db_info[db_id])
+
             except Exception as e:
                 logger.error(f"[MultiMongo] Error updating stats for {doc.get('db_alias', db_name)}: {e}")
                 self._db_info[db_id]["status"] = "error"
@@ -241,7 +265,7 @@ class MultiMongoManager:
         try:
             test_client = AsyncIOMotorClient(db_uri, serverSelectionTimeoutMS=7000)
             await test_client.admin.command('ping')
-            stats = await test_client[db_name].command("dbstats")
+            size_mb, _ = await self._compute_cluster_storage(test_client, db_name)
         except ServerSelectionTimeoutError:
             return False, "❌ Connection Timed Out! Please verify your IP Whitelist (0.0.0.0/0) and credentials in MongoDB Atlas."
         except ConnectionFailure as cf:
@@ -253,12 +277,7 @@ class MultiMongoManager:
         total_dbs = await self._registry_col.count_documents({})
         alias = f"DB-{total_dbs + 1}"
 
-        storage_bytes = stats.get("storageSize", 0)
-        data_bytes = stats.get("dataSize", 0)
-        used_bytes = max(storage_bytes, data_bytes)
-        size_mb = round(used_bytes / (1024 * 1024), 2)
-        usage_percent = round((size_mb / max_size_mb) * 100, 1)
-
+        usage_percent = round((size_mb / max_size_mb) * 100, 1) if max_size_mb > 0 else 0.0
         is_full = usage_percent >= CAPACITY_THRESHOLD_PERCENT
         status = "full (read-only)" if is_full else "active"
 
@@ -272,7 +291,7 @@ class MultiMongoManager:
             "max_size_mb": max_size_mb,
             "current_size_mb": size_mb,
             "usage_percent": usage_percent,
-            "file_count": stats.get("objects", 0),
+            "file_count": 0,
             "status": status,
             "added_at": time.time(),
         }
